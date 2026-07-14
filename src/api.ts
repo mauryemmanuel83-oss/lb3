@@ -57,13 +57,27 @@ const fetchRole = async (userId: string): Promise<UserRole> => {
   return data.role as UserRole;
 };
 
-const translateAuthError = (message: string): string => {
-  const m = message.toLowerCase();
+const translateAuthError = (message: string, status?: number): string => {
+  const m = (message || '').toLowerCase().trim();
+
   if (m.includes('invalid login credentials')) return 'Usuario o contraseña incorrectos';
-  if (m.includes('already registered') || m.includes('already been registered')) return 'Ese usuario ya existe. Prueba con otro o inicia sesión.';
+  if (m.includes('already registered') || m.includes('already been registered'))
+    return 'Ese usuario ya existe. Prueba con otro o inicia sesión.';
   if (m.includes('at least 6 characters')) return 'La contraseña debe tener al menos 6 caracteres';
   if (m.includes('rate limit')) return 'Demasiados intentos. Espera un momento y vuelve a intentar.';
-  if (m.includes('fetch')) return 'Sin conexión con el servidor. Revisa tu internet.';
+
+  // Error del servidor de autenticación. Suele venir con cuerpo vacío ("{}"),
+  // así que nunca lo mostramos crudo al usuario.
+  if (status && status >= 500) {
+    return 'El servidor de autenticación falló. Si es la cuenta PIRQA, vuelve a correr la migración 004 en Supabase.';
+  }
+  if (m.includes('fetch') || m.includes('network')) return 'Sin conexión con el servidor. Revisa tu internet.';
+
+  // Mensaje vacío o no informativo ("{}", "{ }", ""): no lo enseñamos.
+  if (!m || m === '{}' || m.replace(/[{}\s"]/g, '') === '') {
+    return 'No se pudo iniciar sesión. Vuelve a intentarlo en unos segundos.';
+  }
+
   return message;
 };
 
@@ -73,7 +87,7 @@ export const signUp = async (username: string, password: string): Promise<Sessio
     password,
     options: { data: { username } }
   });
-  if (error) throw new Error(translateAuthError(error.message));
+  if (error) throw new Error(translateAuthError(error.message, error.status));
   if (!data.session) {
     throw new Error(
       'La cuenta se creó pero falta desactivar la confirmación por email en Supabase (Authentication → Sign In / Providers → Email → apagar "Confirm email").'
@@ -88,7 +102,7 @@ export const signIn = async (username: string, password: string): Promise<Sessio
     email: usernameToEmail(username),
     password
   });
-  if (error) throw new Error(translateAuthError(error.message));
+  if (error) throw new Error(translateAuthError(error.message, error.status));
   const metaUsername = (data.user.user_metadata?.username as string) || username;
   return { id: data.user.id, username: metaUsername, role: await fetchRole(data.user.id) };
 };

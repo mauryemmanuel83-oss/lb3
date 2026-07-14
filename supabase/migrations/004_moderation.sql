@@ -68,9 +68,10 @@ create trigger on_auth_user_created
 update public.profiles set role = 'moderator' where lower(username) = 'pirqa' and role = 'user';
 
 -- Alta automática del usuario PIRQA / PIRQA26 si todavía no existe.
--- (Si tu instancia rechaza el insert directo en auth.users, simplemente
---  registra PIRQA con la contraseña PIRQA26 desde la app: el trigger de
---  arriba le asigna el rol moderator automáticamente.)
+--
+-- IMPORTANTE: el servicio de auth de Supabase (GoTrue, escrito en Go) NO
+-- tolera NULL en las columnas de token: al leerlas revienta con un error 500
+-- vacío y el login falla. Por eso todas se insertan como cadena vacía ('').
 do $$
 declare
   new_id uuid := gen_random_uuid();
@@ -79,7 +80,9 @@ begin
     insert into auth.users (
       instance_id, id, aud, role, email, encrypted_password,
       email_confirmed_at, created_at, updated_at,
-      raw_app_meta_data, raw_user_meta_data, is_sso_user
+      raw_app_meta_data, raw_user_meta_data, is_sso_user,
+      confirmation_token, recovery_token, email_change,
+      email_change_token_new, email_change_token_current
     ) values (
       '00000000-0000-0000-0000-000000000000',
       new_id,
@@ -90,12 +93,42 @@ begin
       now(), now(), now(),
       '{"provider":"email","providers":["email"]}'::jsonb,
       '{"username":"PIRQA"}'::jsonb,
-      false
+      false,
+      '', '', '', '', ''
     );
   end if;
 exception when others then
-  raise notice 'No se pudo crear PIRQA automáticamente (%). Regístralo desde la app con la contraseña PIRQA26: el trigger lo hará moderador.', sqlerrm;
+  raise notice 'No se pudo crear PIRQA automáticamente (%). Regístralo desde la app con la contraseña PIRQA26: el trigger de arriba le asigna el rol moderator.', sqlerrm;
 end $$;
+
+-- ─── REPARACIÓN ────────────────────────────────────────────
+-- Si PIRQA ya se creó con columnas de token en NULL (versión anterior de
+-- este archivo), su login devolvía error 500. Esto lo deja usable.
+-- Recorre solo las columnas que existan en tu versión de Supabase.
+do $$
+declare
+  col text;
+begin
+  foreach col in array array[
+    'confirmation_token', 'recovery_token', 'email_change',
+    'email_change_token_new', 'email_change_token_current',
+    'phone_change', 'phone_change_token', 'reauthentication_token'
+  ] loop
+    begin
+      execute format(
+        'update auth.users set %I = coalesce(%I, '''') where email = %L',
+        col, col, 'pirqa@escaladores.labeta.app'
+      );
+    exception when undefined_column then null;  -- esa columna no existe: seguimos
+    end;
+  end loop;
+end $$;
+
+-- Nos aseguramos de que la contraseña sea PIRQA26 y el email esté confirmado
+update auth.users
+set encrypted_password = crypt('PIRQA26', gen_salt('bf')),
+    email_confirmed_at = coalesce(email_confirmed_at, now())
+where email = 'pirqa@escaladores.labeta.app';
 
 -- ─── RLS: permisos por ROL ──────────────────────────────────
 -- Betas: todos ven las visibles; el autor ve las suyas aunque estén
