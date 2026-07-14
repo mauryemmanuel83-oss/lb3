@@ -1,6 +1,7 @@
 import React from 'react';
 import { Beta } from '../types';
 import { BetaOverlay } from './BetaOverlay';
+import { STATUS_META } from '../lib/betaStatus';
 
 interface BetaCardProps {
   beta: Beta;
@@ -13,11 +14,20 @@ interface BetaCardProps {
  * fecha, comentarios y recomendaciones. Toda la info esencial de un vistazo.
  */
 export const BetaCard: React.FC<BetaCardProps> = ({ beta, onSelect, index = 0 }) => {
+  const status = STATUS_META[beta.status];
+  const isStale = beta.status !== 'active';
+
   return (
     <article
       onClick={() => onSelect(beta.id)}
       style={{ animationDelay: `${Math.min(index * 60, 360)}ms` }}
-      className="card-in bg-[#18181B] border border-[#3F3F46] rounded-xl overflow-hidden cursor-pointer group hover:border-primary-container transition-colors duration-200 shadow-[3px_3px_0_0_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+      className={`card-in bg-[#18181B] border rounded-xl overflow-hidden cursor-pointer group transition-colors duration-200 shadow-[3px_3px_0_0_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none ${
+        beta.status === 'removed'
+          ? 'border-red-900/50 hover:border-red-600/60'
+          : beta.status === 'holds_changed'
+            ? 'border-amber-900/50 hover:border-amber-500/60'
+            : 'border-[#3F3F46] hover:border-primary-container'
+      }`}
     >
       {/* Foto con anotaciones en miniatura */}
       <div className="relative w-full aspect-[4/3] bg-surface-container-lowest overflow-hidden">
@@ -25,9 +35,21 @@ export const BetaCard: React.FC<BetaCardProps> = ({ beta, onSelect, index = 0 })
           src={beta.imageUrl}
           alt={beta.name}
           loading="lazy"
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+          className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04] ${
+            isStale ? 'grayscale-[60%] opacity-80' : ''
+          }`}
           referrerPolicy="no-referrer"
         />
+
+        {/* Badge de estado del ciclo de vida (solo si no está activa) */}
+        {isStale && (
+          <div
+            className={`absolute bottom-2.5 left-2.5 flex items-center gap-1 border rounded px-2 py-0.5 backdrop-blur font-mono text-[9px] font-bold uppercase tracking-wider ${status.chip}`}
+          >
+            <span className="material-symbols-outlined text-[12px]">{status.icon}</span>
+            {status.label}
+          </div>
+        )}
         <div className="absolute inset-0">
           <BetaOverlay markers={beta.markers} strokes={beta.strokes} texts={beta.texts} compact />
         </div>
@@ -46,7 +68,7 @@ export const BetaCard: React.FC<BetaCardProps> = ({ beta, onSelect, index = 0 })
           <span className="font-mono text-[8px] text-on-surface-variant uppercase">presas</span>
         </div>
 
-        {beta.activeProject && (
+        {beta.activeProject && !isStale && (
           <div className="absolute bottom-2.5 left-2.5 bg-blue-950/90 border border-blue-500 rounded px-2 py-0.5 backdrop-blur">
             <span className="font-mono text-[9px] text-blue-300 font-bold uppercase tracking-wider">Proyecto</span>
           </div>

@@ -1,30 +1,47 @@
 import React, { useState } from 'react';
-import { Beta, Wall } from '../types';
+import { Beta, Wall, ReportReason } from '../types';
 import { BetaOverlay } from './BetaOverlay';
+import { STATUS_META } from '../lib/betaStatus';
+import { REPORT_THRESHOLD } from '../api';
 
 interface BetaDetailProps {
   beta: Beta;
   walls: Wall[];
   username: string;
+  hasReplacement: boolean; // ¿existe la beta que la reemplaza?
   onClose: () => void;
   onDelete?: (betaId: string) => void;
   onToggleProject?: (betaId: string) => void;
   onAddComment: (betaId: string, text: string) => void;
   onToggleRecommend: (betaId: string) => void;
+  onReport: (betaId: string, reason: ReportReason) => void;
+  onUnreport: (betaId: string) => void;
+  onOpenReplacement: (betaId: string) => void;
+  onCreateUpdatedVersion: (beta: Beta) => void;
 }
 
 export const BetaDetail: React.FC<BetaDetailProps> = ({
   beta,
   walls,
   username,
+  hasReplacement,
   onClose,
   onDelete,
   onToggleProject,
   onAddComment,
-  onToggleRecommend
+  onToggleRecommend,
+  onReport,
+  onUnreport,
+  onOpenReplacement,
+  onCreateUpdatedVersion
 }) => {
   const wall = walls.find((w) => w.id === beta.wallId);
   const [commentText, setCommentText] = useState('');
+
+  const status = STATUS_META[beta.status];
+  const isStale = beta.status !== 'active';
+  // Progreso hacia el consenso (el mayor de los dos motivos)
+  const reportCount = Math.max(beta.reportsHolds, beta.reportsRemoved);
 
   const submitComment = () => {
     const clean = commentText.trim();
@@ -92,13 +109,26 @@ export const BetaDetail: React.FC<BetaDetailProps> = ({
                   >
                     {beta.grade}
                   </span>
+                  {beta.version > 1 && (
+                    <span className="font-mono text-[10px] text-primary-container bg-primary-container/10 border border-primary-container/30 px-2 py-1 rounded font-bold uppercase">
+                      v{beta.version}
+                    </span>
+                  )}
                   <span className="flex items-center gap-1 font-mono text-[9px] text-on-surface-variant uppercase border border-outline-variant rounded px-2 py-1">
                     <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: beta.holdColor }}></span>
                     presas
                   </span>
-                  {beta.activeProject && (
+                  {beta.activeProject && !isStale && (
                     <span className="font-mono text-[10px] text-blue-400 bg-blue-950/50 border border-blue-500/50 px-2.5 py-1 rounded font-bold uppercase animate-pulse">
                       Proyecto
+                    </span>
+                  )}
+                  {isStale && (
+                    <span
+                      className={`flex items-center gap-1 font-mono text-[10px] px-2.5 py-1 rounded font-bold uppercase border ${status.chip}`}
+                    >
+                      <span className="material-symbols-outlined text-[13px]">{status.icon}</span>
+                      {status.label}
                     </span>
                   )}
                 </div>
@@ -113,6 +143,36 @@ export const BetaDetail: React.FC<BetaDetailProps> = ({
                   <span>{beta.createdAt}</span>
                 </div>
               </div>
+
+              {/* ─── Aviso de ciclo de vida ─── */}
+              {isStale && (
+                <div className={`rounded-xl border p-3.5 flex flex-col gap-3 pop-in ${status.banner}`}>
+                  <div className="flex items-start gap-2.5">
+                    <span className="material-symbols-outlined text-[20px] shrink-0 mt-0.5">{status.icon}</span>
+                    <p className="text-xs leading-relaxed font-sans">{status.message}</p>
+                  </div>
+                  {hasReplacement && beta.replacedById && (
+                    <button
+                      onClick={() => onOpenReplacement(beta.replacedById!)}
+                      className="w-full h-11 bg-primary-container text-on-primary font-display font-bold text-xs uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 btn-punch shadow-[3px_3px_0_0_rgba(0,0,0,1)]"
+                      id="btn-view-replacement"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                      Ver Beta actualizada
+                    </button>
+                  )}
+                  {!hasReplacement && (
+                    <button
+                      onClick={() => onCreateUpdatedVersion(beta)}
+                      className="w-full h-11 bg-surface-container border border-outline-variant text-on-surface font-display font-bold text-xs uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 btn-punch hover:border-primary-container"
+                      id="btn-create-updated-version"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">add_a_photo</span>
+                      Crear Beta actualizada
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Recomendar */}
               <button
@@ -158,6 +218,72 @@ export const BetaDetail: React.FC<BetaDetailProps> = ({
                   {beta.notes || 'No hay comentarios técnicos registrados para este bloque.'}
                 </div>
               </div>
+
+              {/* ─── Reporte comunitario de cambio de presas ─── */}
+              {beta.status !== 'removed' && (
+                <div className="space-y-2.5">
+                  <h4 className="font-mono text-[10px] text-on-surface-variant uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[14px]">report</span>
+                    Estado de la ruta
+                  </h4>
+
+                  {beta.myReport ? (
+                    <div className="bg-amber-950/30 border border-amber-500/40 rounded-lg p-3 flex items-center justify-between gap-2">
+                      <span className="text-xs text-amber-200 font-mono flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[16px]">check</span>
+                        Reportaste {beta.myReport === 'removed' ? 'ruta removida' : 'presas cambiadas'}
+                      </span>
+                      <button
+                        onClick={() => onUnreport(beta.id)}
+                        className="font-mono text-[10px] text-on-surface-variant hover:text-white underline shrink-0"
+                        id="btn-unreport"
+                      >
+                        Deshacer
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <button
+                        onClick={() => onReport(beta.id, 'holds_changed')}
+                        className="w-full h-11 bg-surface-container border border-amber-700/50 text-amber-200 font-mono text-xs rounded-lg flex items-center justify-center gap-2 btn-punch hover:border-amber-500"
+                        id="btn-report-holds"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">warning</span>
+                        Las presas cambiaron
+                      </button>
+                      <button
+                        onClick={() => onReport(beta.id, 'removed')}
+                        className="w-full h-10 bg-surface-container border border-red-800/50 text-red-300 font-mono text-[11px] rounded-lg flex items-center justify-center gap-2 btn-punch hover:border-red-600"
+                        id="btn-report-removed"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">cancel</span>
+                        La ruta fue removida
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Progreso hacia el consenso */}
+                  {reportCount > 0 && beta.status === 'active' && (
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 bg-surface-container-high rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-500 rounded-full transition-all duration-300"
+                          style={{ width: `${Math.min((reportCount / REPORT_THRESHOLD) * 100, 100)}%` }}
+                        ></div>
+                      </div>
+                      <span className="font-mono text-[9px] text-on-surface-variant whitespace-nowrap">
+                        {reportCount} de {REPORT_THRESHOLD} reportes
+                      </span>
+                    </div>
+                  )}
+                  {beta.status === 'active' && (
+                    <p className="font-mono text-[9px] text-on-surface-variant/60 leading-relaxed">
+                      Se necesitan {REPORT_THRESHOLD} reportes de escaladores distintos para marcar la ruta como
+                      cambiada. Así se evitan reportes falsos.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* ─── Comentarios de la comunidad ─── */}
               <div className="space-y-3">

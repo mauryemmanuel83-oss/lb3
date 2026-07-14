@@ -8,6 +8,8 @@ import { Mascot } from './Mascot';
 interface BuildProps {
   walls: Wall[];
   initialWallId: string | null;
+  replacesBetaId?: string | null; // creando una versión actualizada de otra beta
+  replacesBetaName?: string | null;
   onPublish: (beta: NewBetaInput) => Promise<void>;
 }
 
@@ -61,7 +63,13 @@ const compressImage = (file: File): Promise<string> =>
  * Flujo de creación de Beta, sin desvíos:
  * Elegir muro → Tomar foto → Dibujar beta → Publicar.
  */
-export const Build: React.FC<BuildProps> = ({ walls, initialWallId, onPublish }) => {
+export const Build: React.FC<BuildProps> = ({
+  walls,
+  initialWallId,
+  replacesBetaId,
+  replacesBetaName,
+  onPublish
+}) => {
   const initialWall = walls.find((w) => w.id === initialWallId) || null;
   const [step, setStep] = useState<Step>(initialWall ? 'photo' : 'wall');
   const [wall, setWall] = useState<Wall | null>(initialWall);
@@ -142,7 +150,8 @@ export const Build: React.FC<BuildProps> = ({ walls, initialWallId, onPublish })
         markers: snapshot.markers,
         strokes: snapshot.strokes,
         texts: snapshot.texts,
-        wallId: wall.id
+        wallId: wall.id,
+        replacesBetaId: replacesBetaId || null
       });
       setPublishState('success');
       // App ya navegó al perfil; el overlay se va con el unmount
@@ -203,7 +212,7 @@ export const Build: React.FC<BuildProps> = ({ walls, initialWallId, onPublish })
           )}
           <div className="min-w-0">
             <h2 className="font-display font-black text-2xl md:text-3xl text-primary-container tracking-tight">
-              Crear Beta
+              {replacesBetaId ? 'Beta actualizada' : 'Crear Beta'}
             </h2>
             {wall && step !== 'wall' && (
               <p className="font-mono text-[10px] text-on-surface-variant mt-0.5 uppercase tracking-wider truncate">
@@ -212,6 +221,17 @@ export const Build: React.FC<BuildProps> = ({ walls, initialWallId, onPublish })
             )}
           </div>
         </div>
+
+        {/* Aviso: versión actualizada de otra beta */}
+        {replacesBetaId && (
+          <div className="mt-3 bg-primary-container/10 border border-primary-container/30 rounded-lg p-3 flex items-center gap-2.5">
+            <span className="material-symbols-outlined text-primary-container text-[18px]">history</span>
+            <p className="font-mono text-[10px] text-on-surface-variant leading-relaxed">
+              Nueva versión de <strong className="text-primary-container">{replacesBetaName || 'una beta anterior'}</strong>.
+              La original se conserva como histórico.
+            </p>
+          </div>
+        )}
 
         {/* Barra de pasos */}
         <div className="flex items-center gap-1.5 mt-4">

@@ -12,7 +12,7 @@ import { Explore } from './components/Explore';
 import { Build } from './components/Build';
 import { Dashboard } from './components/Dashboard';
 import { BetaDetail } from './components/BetaDetail';
-import { Beta, Wall, ClimberStats, Tab } from './types';
+import { Beta, Wall, ClimberStats, Tab, ReportReason } from './types';
 import { INITIAL_WALLS, buildActivityMatrix } from './data';
 import { isSupabaseConfigured } from './lib/supabase';
 import * as api from './api';
@@ -79,6 +79,8 @@ export default function App() {
 
   const [selectedBetaId, setSelectedBetaId] = useState<string | null>(null);
   const [buildInitialWallId, setBuildInitialWallId] = useState<string | null>(null);
+  const [buildReplacesId, setBuildReplacesId] = useState<string | null>(null);
+  const [buildReplacesName, setBuildReplacesName] = useState<string | null>(null);
   const [buildSession, setBuildSession] = useState(0);
 
   const refreshBetas = useCallback(async (userId: string | null) => {
@@ -125,6 +127,9 @@ export default function App() {
 
   const changeTab = (tab: Tab) => {
     if (tab === 'build') {
+      // entrar a "Crear" desde el menú siempre arranca una beta nueva (sin enlace de versión)
+      setBuildReplacesId(null);
+      setBuildReplacesName(null);
       setBuildSession((s) => s + 1);
     } else {
       setBuildInitialWallId(null);
@@ -134,6 +139,18 @@ export default function App() {
 
   const navigateToBuild = (wallId: string | null) => {
     setBuildInitialWallId(wallId);
+    setBuildReplacesId(null);
+    setBuildReplacesName(null);
+    setBuildSession((s) => s + 1);
+    setCurrentTab('build');
+  };
+
+  // Crear una versión actualizada de una beta existente (histórico enlazado)
+  const handleCreateUpdatedVersion = (beta: Beta) => {
+    setSelectedBetaId(null);
+    setBuildInitialWallId(beta.wallId);
+    setBuildReplacesId(beta.id);
+    setBuildReplacesName(beta.name);
     setBuildSession((s) => s + 1);
     setCurrentTab('build');
   };
@@ -207,6 +224,39 @@ export default function App() {
     );
     try {
       await api.setRecommendation(user.id, betaId, next);
+    } catch {
+      await refreshBetas(user.id);
+    }
+  };
+
+  // ─── Reportes de cambio de presas (consenso) ───
+  const handleReport = async (betaId: string, reason: ReportReason) => {
+    if (!user) return;
+    // Optimista: marca mi reporte al instante
+    setBetas((prev) =>
+      prev.map((b) => {
+        if (b.id !== betaId) return b;
+        const holds = b.reportsHolds + (reason === 'holds_changed' && b.myReport !== 'holds_changed' ? 1 : 0);
+        const removed = b.reportsRemoved + (reason === 'removed' && b.myReport !== 'removed' ? 1 : 0);
+        return { ...b, myReport: reason, reportsHolds: holds, reportsRemoved: removed };
+      })
+    );
+    try {
+      await api.reportBeta(user.id, betaId, reason);
+      // El trigger puede haber cambiado el estado: recargamos para reflejarlo
+      await refreshBetas(user.id);
+    } catch (err) {
+      await refreshBetas(user.id);
+      alert(err instanceof Error ? err.message : 'No se pudo enviar el reporte.');
+    }
+  };
+
+  const handleUnreport = async (betaId: string) => {
+    if (!user) return;
+    setBetas((prev) => prev.map((b) => (b.id === betaId ? { ...b, myReport: null } : b)));
+    try {
+      await api.unreportBeta(user.id, betaId);
+      await refreshBetas(user.id);
     } catch {
       await refreshBetas(user.id);
     }
@@ -291,6 +341,8 @@ export default function App() {
               key={buildSession}
               walls={walls}
               initialWallId={buildInitialWallId}
+              replacesBetaId={buildReplacesId}
+              replacesBetaName={buildReplacesName}
               onPublish={handlePublishBeta}
             />
           )}
@@ -317,11 +369,16 @@ export default function App() {
           beta={selectedBeta}
           walls={walls}
           username={user.username}
+          hasReplacement={!!selectedBeta.replacedById && betas.some((b) => b.id === selectedBeta.replacedById)}
           onClose={() => setSelectedBetaId(null)}
           onDelete={selectedBeta.authorId === user.id ? handleDeleteBeta : undefined}
           onToggleProject={selectedBeta.authorId === user.id ? handleToggleProject : undefined}
           onAddComment={handleAddComment}
           onToggleRecommend={handleToggleRecommend}
+          onReport={handleReport}
+          onUnreport={handleUnreport}
+          onOpenReplacement={(id) => setSelectedBetaId(id)}
+          onCreateUpdatedVersion={handleCreateUpdatedVersion}
         />
       )}
     </div>

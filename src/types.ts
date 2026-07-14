@@ -41,6 +41,12 @@ export interface Comment {
   createdAt: string;
 }
 
+// Ciclo de vida de una beta según el consenso de la comunidad
+export type BetaStatus = 'active' | 'holds_changed' | 'removed';
+
+// Motivo de un reporte de cambio
+export type ReportReason = 'holds_changed' | 'removed';
+
 export interface Beta {
   id: string;
   name: string;
@@ -61,6 +67,14 @@ export interface Beta {
   comments: Comment[];
   recommendations: number;
   recommendedByMe?: boolean;
+  // Ciclo de vida y versionado
+  status: BetaStatus;
+  version: number;
+  replacedById: string | null; // id de la beta más nueva que la reemplaza
+  replacesId: string | null; // id de la beta anterior que esta reemplaza
+  reportsHolds: number; // reportes de "presas cambiadas"
+  reportsRemoved: number; // reportes de "ruta removida"
+  myReport: ReportReason | null; // qué reportó el usuario actual (si acaso)
 }
 
 export interface Wall {

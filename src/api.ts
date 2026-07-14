@@ -1,5 +1,10 @@
 import { supabase } from './lib/supabase';
-import { Beta, Comment, Marker, Stroke, TextLabel } from './types';
+import { Beta, Comment, Marker, Stroke, TextLabel, BetaStatus, ReportReason } from './types';
+
+// Umbral de consenso: cuántos usuarios distintos deben reportar el mismo
+// cambio para que la beta cambie de estado sola. Debe coincidir con el
+// `threshold` del trigger en supabase/migrations/002_beta_lifecycle.sql.
+export const REPORT_THRESHOLD = 3;
 
 // Los usuarios entran con nombre de usuario; Supabase Auth exige email,
 // así que sintetizamos uno estable a partir del username.
@@ -93,6 +98,11 @@ interface BetaRow {
   texts: TextLabel[];
   active_project: boolean;
   created_at: string;
+  // Columnas de ciclo de vida (pueden faltar si aún no se corrió la migración 002)
+  status?: string;
+  version?: number;
+  replaced_by?: string | null;
+  replaces?: string | null;
   profiles: { username: string } | null;
   comments: {
     id: string;
@@ -104,36 +114,52 @@ interface BetaRow {
   recommendations: { user_id: string }[];
 }
 
-const rowToBeta = (row: BetaRow, currentUserId: string | null): Beta => ({
-  id: row.id,
-  authorId: row.author_id,
-  name: row.name,
-  grade: row.grade,
-  wallId: row.wall_id,
-  holdColor: row.hold_color,
-  styles: row.styles || [],
-  notes: row.notes || '',
-  imageUrl: row.image_data,
-  markers: row.markers || [],
-  strokes: row.strokes || [],
-  texts: row.texts || [],
-  activeProject: row.active_project,
-  createdAt: timeAgo(row.created_at),
-  createdAtISO: row.created_at,
-  author: row.profiles?.username || 'escalador',
-  comments: (row.comments || [])
-    .sort((a, b) => a.created_at.localeCompare(b.created_at))
-    .map(
-      (c): Comment => ({
-        id: c.id,
-        author: c.profiles?.username || 'escalador',
-        text: c.text,
-        createdAt: timeAgo(c.created_at)
-      })
-    ),
-  recommendations: (row.recommendations || []).length,
-  recommendedByMe: currentUserId ? (row.recommendations || []).some((r) => r.user_id === currentUserId) : false
-});
+interface ReportRow {
+  beta_id: string;
+  user_id: string;
+  reason: ReportReason;
+}
+
+const rowToBeta = (row: BetaRow, currentUserId: string | null, reports: ReportRow[]): Beta => {
+  const myReports = reports.filter((r) => r.beta_id === row.id);
+  return {
+    id: row.id,
+    authorId: row.author_id,
+    name: row.name,
+    grade: row.grade,
+    wallId: row.wall_id,
+    holdColor: row.hold_color,
+    styles: row.styles || [],
+    notes: row.notes || '',
+    imageUrl: row.image_data,
+    markers: row.markers || [],
+    strokes: row.strokes || [],
+    texts: row.texts || [],
+    activeProject: row.active_project,
+    createdAt: timeAgo(row.created_at),
+    createdAtISO: row.created_at,
+    author: row.profiles?.username || 'escalador',
+    comments: (row.comments || [])
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .map(
+        (c): Comment => ({
+          id: c.id,
+          author: c.profiles?.username || 'escalador',
+          text: c.text,
+          createdAt: timeAgo(c.created_at)
+        })
+      ),
+    recommendations: (row.recommendations || []).length,
+    recommendedByMe: currentUserId ? (row.recommendations || []).some((r) => r.user_id === currentUserId) : false,
+    status: (row.status as BetaStatus) || 'active',
+    version: row.version || 1,
+    replacedById: row.replaced_by || null,
+    replacesId: row.replaces || null,
+    reportsHolds: myReports.filter((r) => r.reason === 'holds_changed').length,
+    reportsRemoved: myReports.filter((r) => r.reason === 'removed').length,
+    myReport: currentUserId ? myReports.find((r) => r.user_id === currentUserId)?.reason || null : null
+  };
+};
 
 const BETA_SELECT = `*,
   profiles:author_id (username),
@@ -146,7 +172,16 @@ export const fetchBetas = async (currentUserId: string | null): Promise<Beta[]> 
     .select(BETA_SELECT)
     .order('created_at', { ascending: false });
   if (error) throw new Error(error.message);
-  return (data as unknown as BetaRow[]).map((row) => rowToBeta(row, currentUserId));
+
+  // Los reportes viven en su propia tabla. Antes de correr la migración 002
+  // esa tabla no existe: en ese caso seguimos sin reportes (degradación grácil).
+  let reports: ReportRow[] = [];
+  const reportRes = await supabase.from('beta_reports').select('beta_id, user_id, reason');
+  if (!reportRes.error && reportRes.data) {
+    reports = reportRes.data as ReportRow[];
+  }
+
+  return (data as unknown as BetaRow[]).map((row) => rowToBeta(row, currentUserId, reports));
 };
 
 export interface NewBetaInput {
@@ -160,10 +195,11 @@ export interface NewBetaInput {
   markers: Marker[];
   strokes: Stroke[];
   texts: TextLabel[];
+  replacesBetaId?: string | null; // si es una versión actualizada de otra beta
 }
 
 export const publishBeta = async (userId: string, input: NewBetaInput): Promise<void> => {
-  const { error } = await supabase.from('betas').insert({
+  const payload: Record<string, unknown> = {
     author_id: userId,
     name: input.name,
     grade: input.grade,
@@ -175,7 +211,28 @@ export const publishBeta = async (userId: string, input: NewBetaInput): Promise<
     markers: input.markers,
     strokes: input.strokes,
     texts: input.texts
-  });
+  };
+  if (input.replacesBetaId) payload.replaces = input.replacesBetaId;
+
+  const { error } = await supabase.from('betas').insert(payload);
+  if (error) throw new Error(error.message);
+};
+
+// ─── Reportes de cambio de presas / ruta removida ────────────
+export const reportBeta = async (userId: string, betaId: string, reason: ReportReason): Promise<void> => {
+  const { error } = await supabase
+    .from('beta_reports')
+    .upsert({ beta_id: betaId, user_id: userId, reason }, { onConflict: 'beta_id,user_id' });
+  if (error) {
+    if (error.message.includes('does not exist') || error.message.includes('schema cache')) {
+      throw new Error('Falta correr la migración 002 en Supabase (SQL Editor).');
+    }
+    throw new Error(error.message);
+  }
+};
+
+export const unreportBeta = async (userId: string, betaId: string): Promise<void> => {
+  const { error } = await supabase.from('beta_reports').delete().eq('beta_id', betaId).eq('user_id', userId);
   if (error) throw new Error(error.message);
 };
 
