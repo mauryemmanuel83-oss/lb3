@@ -134,6 +134,12 @@ export const BetaDetail: React.FC<BetaDetailProps> = ({
                   >
                     {beta.grade}
                   </span>
+                  {beta.official && (
+                    <span className="flex items-center gap-1 font-mono text-[10px] text-on-primary bg-primary-container border border-primary-container px-2.5 py-1 rounded font-bold uppercase">
+                      <span className="material-symbols-outlined text-[13px]">verified</span>
+                      Ruta Oficial
+                    </span>
+                  )}
                   {beta.version > 1 && (
                     <span className="font-mono text-[10px] text-primary-container bg-primary-container/10 border border-primary-container/30 px-2 py-1 rounded font-bold uppercase">
                       v{beta.version}

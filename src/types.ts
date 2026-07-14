@@ -41,6 +41,11 @@ export interface Comment {
   createdAt: string;
 }
 
+// Roles: los permisos SIEMPRE se validan por rol, nunca por username
+export type UserRole = 'user' | 'moderator' | 'admin';
+
+export const isModeratorRole = (role: UserRole): boolean => role === 'moderator' || role === 'admin';
+
 // Ciclo de vida de una beta según el consenso de la comunidad
 export type BetaStatus = 'active' | 'holds_changed' | 'removed';
 
@@ -102,6 +107,34 @@ export interface Beta {
   myReport: ReportReason | null; // qué reportó el usuario actual (si acaso)
   // Ascensos del usuario actual sobre esta beta (más recientes primero)
   myAscents: Ascent[];
+  // Moderación (nunca se borra: se oculta o se banea)
+  official: boolean; // ruta oficial del gimnasio
+  hidden: boolean;
+  banned: boolean;
+}
+
+// Estadísticas del usuario, calculadas en la base de datos (vista user_stats)
+export interface UserStats {
+  userId: string;
+  username: string;
+  role: UserRole;
+  betaScore: number;
+  betasCompleted: number;
+  flashCount: number;
+  onsightCount: number;
+  redpointCount: number;
+  leadCount: number;
+  topRopeCount: number;
+  maxBoulderIndex: number; // -1 si no hay
+  maxSportIndex: number; // -1 si no hay
+  activeProjects: number;
+  betasPublished: number;
+  lastAscentAt: string | null;
+}
+
+// Fila del ranking global (vista ranking, sin moderadores)
+export interface RankingRow extends UserStats {
+  position: number;
 }
 
 export interface Wall {
@@ -129,4 +162,4 @@ export interface ActivityMatrixDay {
 
 export type MascotState = 'idle' | 'loading' | 'publishing' | 'success' | 'error' | 'empty';
 
-export type Tab = 'home' | 'explore' | 'build' | 'dashboard';
+export type Tab = 'home' | 'explore' | 'build' | 'dashboard' | 'moderation';

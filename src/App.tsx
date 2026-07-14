@@ -12,8 +12,9 @@ import { Explore } from './components/Explore';
 import { Build } from './components/Build';
 import { Dashboard } from './components/Dashboard';
 import { BetaDetail } from './components/BetaDetail';
-import { Beta, Wall, ClimberStats, Tab, ReportReason } from './types';
+import { Beta, Wall, Tab, ReportReason, UserStats, isModeratorRole } from './types';
 import { AscentWithBeta } from './lib/ascents';
+import { Moderation } from './components/Moderation';
 import { INITIAL_WALLS, buildActivityMatrix } from './data';
 import { isSupabaseConfigured } from './lib/supabase';
 import * as api from './api';
@@ -84,12 +85,17 @@ export default function App() {
   const [buildReplacesName, setBuildReplacesName] = useState<string | null>(null);
   const [buildSession, setBuildSession] = useState(0);
 
+  // Estadísticas calculadas en la base de datos (vista user_stats)
+  const [dbStats, setDbStats] = useState<UserStats | null>(null);
+
   const refreshBetas = useCallback(async (userId: string | null) => {
     setIsLoadingBetas(true);
     setLoadError(null);
     try {
       const fresh = await api.fetchBetas(userId);
       setBetas(fresh);
+      // Las stats se recalculan solas en la DB tras cada ascenso
+      if (userId) setDbStats(await api.fetchUserStats(userId));
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Error cargando betas');
     } finally {
@@ -122,7 +128,21 @@ export default function App() {
       await api.signOut();
       setUser(null);
       setBetas([]);
+      setDbStats(null);
       setCurrentTab('home');
+    }
+  };
+
+  // ─── Moderación (permiso validado por ROL, nunca por username) ───
+  const handleModerate = async (betaId: string, flag: 'official' | 'hidden' | 'banned', value: boolean) => {
+    if (!user || !isModeratorRole(user.role)) return;
+    setBetas((prev) => prev.map((b) => (b.id === betaId ? { ...b, [flag]: value } : b))); // optimista
+    try {
+      await api.moderateBeta(user.id, betaId, flag, value);
+      await refreshBetas(user.id);
+    } catch (err) {
+      await refreshBetas(user.id);
+      alert(err instanceof Error ? err.message : 'No se pudo aplicar la acción de moderación.');
     }
   };
 
@@ -159,7 +179,8 @@ export default function App() {
   // ─── Publicar (async: la mascota espera el resultado real) ───
   const handlePublishBeta = async (input: api.NewBetaInput): Promise<void> => {
     if (!user) throw new Error('Sesión expirada. Vuelve a entrar.');
-    await api.publishBeta(user.id, input);
+    // El rol decide si nace como Ruta Oficial
+    await api.publishBeta(user.id, input, user.role);
     await refreshBetas(user.id);
     // Deja 1.4s para que la mascota celebre antes de ir al perfil
     setTimeout(() => {
@@ -282,19 +303,8 @@ export default function App() {
     [betas]
   );
 
-  const stats: ClimberStats = useMemo(() => {
-    const recsReceived = myBetas.reduce((acc, b) => acc + b.recommendations, 0);
-    const score = myBetas.length * 150 + recsReceived * 25;
-    return {
-      globalBetaScore: score,
-      betasPublished: myBetas.length,
-      activeProjects: 0, // ahora se calcula por disciplina desde ascents
-      recsReceived,
-      level: Math.floor(score / 500) + 1
-    };
-  }, [myBetas]);
-
   const activityData = useMemo(() => buildActivityMatrix(myBetas), [myBetas]);
+  const isMod = user ? isModeratorRole(user.role) : false;
 
   const selectedBeta = betas.find((b) => b.id === selectedBetaId);
 
@@ -312,7 +322,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background text-on-surface font-sans bg-tech-grid pb-28 md:pb-6 pt-20">
-      <Navbar currentTab={currentTab} onChangeTab={changeTab} username={user.username} onLogout={handleLogout} />
+      <Navbar
+        currentTab={currentTab}
+        onChangeTab={changeTab}
+        username={user.username}
+        isModerator={isMod}
+        onLogout={handleLogout}
+      />
 
       <main className="max-w-[1200px] mx-auto px-5 md:px-8 py-4">
         {loadError && (
@@ -366,16 +382,29 @@ export default function App() {
 
           {currentTab === 'dashboard' && (
             <Dashboard
-              stats={stats}
+              dbStats={dbStats}
               myBetas={myBetas}
               myAscents={myAscents}
               username={user.username}
               userId={user.id}
+              isModerator={isMod}
               activityData={activityData}
               onSelectBeta={setSelectedBetaId}
               onNavigateToBuild={() => navigateToBuild(null)}
               onDeleteBeta={handleDeleteBeta}
               onLogout={handleLogout}
+            />
+          )}
+
+          {/* Panel exclusivo del moderador */}
+          {currentTab === 'moderation' && isMod && (
+            <Moderation
+              betas={betas}
+              walls={walls}
+              onSelectBeta={setSelectedBetaId}
+              onModerate={handleModerate}
+              onDeleteBeta={handleDeleteBeta}
+              onNavigateToBuild={() => navigateToBuild(null)}
             />
           )}
         </motion.div>

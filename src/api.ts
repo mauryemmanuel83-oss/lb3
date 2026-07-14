@@ -10,7 +10,10 @@ import {
   Ascent,
   AscentResult,
   AscentType,
-  Discipline
+  Discipline,
+  UserRole,
+  UserStats,
+  RankingRow
 } from './types';
 
 // Umbral de consenso: cuántos usuarios distintos deben reportar el mismo
@@ -43,7 +46,16 @@ export const timeAgo = (iso: string): string => {
 export interface SessionUser {
   id: string;
   username: string;
+  role: UserRole;
 }
+
+// El rol vive en profiles. Si aún no se corrió la migración 004, todos
+// son 'user' (degradación grácil).
+const fetchRole = async (userId: string): Promise<UserRole> => {
+  const { data, error } = await supabase.from('profiles').select('role').eq('id', userId).single();
+  if (error || !data?.role) return 'user';
+  return data.role as UserRole;
+};
 
 const translateAuthError = (message: string): string => {
   const m = message.toLowerCase();
@@ -67,7 +79,8 @@ export const signUp = async (username: string, password: string): Promise<Sessio
       'La cuenta se creó pero falta desactivar la confirmación por email en Supabase (Authentication → Sign In / Providers → Email → apagar "Confirm email").'
     );
   }
-  return { id: data.user!.id, username };
+  const id = data.user!.id;
+  return { id, username, role: await fetchRole(id) };
 };
 
 export const signIn = async (username: string, password: string): Promise<SessionUser> => {
@@ -77,7 +90,7 @@ export const signIn = async (username: string, password: string): Promise<Sessio
   });
   if (error) throw new Error(translateAuthError(error.message));
   const metaUsername = (data.user.user_metadata?.username as string) || username;
-  return { id: data.user.id, username: metaUsername };
+  return { id: data.user.id, username: metaUsername, role: await fetchRole(data.user.id) };
 };
 
 export const signOut = async (): Promise<void> => {
@@ -90,7 +103,8 @@ export const getCurrentUser = async (): Promise<SessionUser | null> => {
   if (!user) return null;
   return {
     id: user.id,
-    username: (user.user_metadata?.username as string) || user.email?.split('@')[0] || 'escalador'
+    username: (user.user_metadata?.username as string) || user.email?.split('@')[0] || 'escalador',
+    role: await fetchRole(user.id)
   };
 };
 
@@ -115,6 +129,10 @@ interface BetaRow {
   version?: number;
   replaced_by?: string | null;
   replaces?: string | null;
+  // Moderación (migración 004)
+  official?: boolean;
+  hidden?: boolean;
+  banned?: boolean;
   profiles: { username: string } | null;
   comments: {
     id: string;
@@ -201,7 +219,10 @@ const rowToBeta = (
     reportsHolds: myReports.filter((r) => r.reason === 'holds_changed').length,
     reportsRemoved: myReports.filter((r) => r.reason === 'removed').length,
     myReport: currentUserId ? myReports.find((r) => r.user_id === currentUserId)?.reason || null : null,
-    myAscents
+    myAscents,
+    official: row.official ?? false,
+    hidden: row.hidden ?? false,
+    banned: row.banned ?? false
   };
 };
 
@@ -252,7 +273,11 @@ export interface NewBetaInput {
   replacesBetaId?: string | null; // si es una versión actualizada de otra beta
 }
 
-export const publishBeta = async (userId: string, input: NewBetaInput): Promise<void> => {
+export const publishBeta = async (
+  userId: string,
+  input: NewBetaInput,
+  role: UserRole = 'user'
+): Promise<void> => {
   const payload: Record<string, unknown> = {
     author_id: userId,
     name: input.name,
@@ -267,9 +292,33 @@ export const publishBeta = async (userId: string, input: NewBetaInput): Promise<
     texts: input.texts
   };
   if (input.replacesBetaId) payload.replaces = input.replacesBetaId;
+  // Las betas del moderador (el gimnasio) nacen como rutas oficiales
+  if (role === 'moderator' || role === 'admin') payload.official = true;
 
   const { error } = await supabase.from('betas').insert(payload);
   if (error) throw new Error(error.message);
+};
+
+// ─── Acciones de moderación (autorizadas por RLS según el rol) ──
+// Nunca borran: conservan el historial marcando banderas.
+type ModerationFlag = 'official' | 'hidden' | 'banned';
+
+export const moderateBeta = async (
+  moderatorId: string,
+  betaId: string,
+  flag: ModerationFlag,
+  value: boolean
+): Promise<void> => {
+  const { error } = await supabase
+    .from('betas')
+    .update({ [flag]: value, moderated_by: moderatorId, moderated_at: new Date().toISOString() })
+    .eq('id', betaId);
+  if (error) {
+    if (error.message.includes('does not exist') || error.message.includes('schema cache')) {
+      throw new Error('Falta correr la migración 004 en Supabase (SQL Editor).');
+    }
+    throw new Error(error.message);
+  }
 };
 
 // ─── Reportes de cambio de presas / ruta removida ────────────
@@ -344,49 +393,38 @@ export const setRecommendation = async (userId: string, betaId: string, recommen
   }
 };
 
-// ─── Ranking del gym ─────────────────────────────────────────
-export interface RankingEntry {
-  userId: string;
-  username: string;
-  betasCount: number;
-  recsReceived: number;
-  score: number;
-}
+// ─── Estadísticas y ranking (calculados en la base de datos) ──
+// Vienen de las vistas user_stats y ranking (migración 005). Si aún no
+// se corrió el SQL, devolvemos null y la UI usa el cálculo local.
 
-export const fetchRanking = async (): Promise<RankingEntry[]> => {
-  const [profilesRes, betasRes, recsRes] = await Promise.all([
-    supabase.from('profiles').select('id, username'),
-    supabase.from('betas').select('id, author_id'),
-    supabase.from('recommendations').select('beta_id')
-  ]);
-  if (profilesRes.error) throw new Error(profilesRes.error.message);
-  if (betasRes.error) throw new Error(betasRes.error.message);
-  if (recsRes.error) throw new Error(recsRes.error.message);
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const mapStats = (r: any): UserStats => ({
+  userId: r.user_id,
+  username: r.username,
+  role: (r.role as UserRole) || 'user',
+  betaScore: r.beta_score ?? 0,
+  betasCompleted: r.betas_completed ?? 0,
+  flashCount: r.flash_count ?? 0,
+  onsightCount: r.onsight_count ?? 0,
+  redpointCount: r.redpoint_count ?? 0,
+  leadCount: r.lead_count ?? 0,
+  topRopeCount: r.top_rope_count ?? 0,
+  maxBoulderIndex: r.max_boulder_index ?? -1,
+  maxSportIndex: r.max_sport_index ?? -1,
+  activeProjects: r.active_projects ?? 0,
+  betasPublished: r.betas_published ?? 0,
+  lastAscentAt: r.last_ascent_at ?? null
+});
 
-  const betaAuthor = new Map<string, string>();
-  const betasCount = new Map<string, number>();
-  for (const b of betasRes.data) {
-    betaAuthor.set(b.id, b.author_id);
-    betasCount.set(b.author_id, (betasCount.get(b.author_id) || 0) + 1);
-  }
+export const fetchUserStats = async (userId: string): Promise<UserStats | null> => {
+  const { data, error } = await supabase.from('user_stats').select('*').eq('user_id', userId).single();
+  if (error || !data) return null; // vista aún no creada → la UI calcula localmente
+  return mapStats(data);
+};
 
-  const recsReceived = new Map<string, number>();
-  for (const r of recsRes.data) {
-    const author = betaAuthor.get(r.beta_id);
-    if (author) recsReceived.set(author, (recsReceived.get(author) || 0) + 1);
-  }
-
-  return profilesRes.data
-    .map((p) => {
-      const betas = betasCount.get(p.id) || 0;
-      const recs = recsReceived.get(p.id) || 0;
-      return {
-        userId: p.id,
-        username: p.username,
-        betasCount: betas,
-        recsReceived: recs,
-        score: betas * 150 + recs * 25
-      };
-    })
-    .sort((a, b) => b.score - a.score || a.username.localeCompare(b.username));
+export const fetchRanking = async (): Promise<RankingRow[] | null> => {
+  const { data, error } = await supabase.from('ranking').select('*').order('position', { ascending: true });
+  if (error || !data) return null;
+  // La vista ya excluye moderadores y ya viene ordenada con desempates
+  return data.map((r: any) => ({ ...mapStats(r), role: 'user' as UserRole, position: r.position }));
 };

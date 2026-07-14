@@ -6,17 +6,29 @@ interface NavbarProps {
   currentTab: Tab;
   onChangeTab: (tab: Tab) => void;
   username: string;
+  isModerator?: boolean;
   onLogout?: () => void;
 }
 
-const NAV_ITEMS: { tab: Tab; label: string; icon: string }[] = [
+const BASE_NAV: { tab: Tab; label: string; icon: string }[] = [
   { tab: 'home', label: 'Inicio', icon: 'home' },
   { tab: 'explore', label: 'Explorar', icon: 'explore' },
   { tab: 'build', label: 'Crear', icon: 'add_box' },
   { tab: 'dashboard', label: 'Perfil', icon: 'person' }
 ];
 
-export const Navbar: React.FC<NavbarProps> = ({ currentTab, onChangeTab, username, onLogout }) => {
+const MOD_ITEM = { tab: 'moderation' as Tab, label: 'Moderar', icon: 'shield_person' };
+
+export const Navbar: React.FC<NavbarProps> = ({
+  currentTab,
+  onChangeTab,
+  username,
+  isModerator = false,
+  onLogout
+}) => {
+  // El tab de moderación solo existe para el rol moderator/admin
+  const NAV_ITEMS = isModerator ? [...BASE_NAV, MOD_ITEM] : BASE_NAV;
+
   return (
     <>
       {/* Top App Bar */}
@@ -70,7 +82,9 @@ export const Navbar: React.FC<NavbarProps> = ({ currentTab, onChangeTab, usernam
             title={`Perfil de ${username}`}
             id="nav-user-chip"
           >
-            <span className="material-symbols-outlined text-primary-container text-[18px]">account_circle</span>
+            <span className="material-symbols-outlined text-primary-container text-[18px]">
+              {isModerator ? 'shield_person' : 'account_circle'}
+            </span>
             <span className="font-mono text-[10px] text-on-surface max-w-[80px] truncate hidden sm:block">
               @{username}
             </span>

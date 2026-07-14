@@ -62,6 +62,16 @@ export const BetaCard: React.FC<BetaCardProps> = ({ beta, onSelect, index = 0 })
           {beta.grade}
         </div>
 
+        {/* Ruta oficial del gimnasio */}
+        {beta.official && (
+          <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1 bg-primary-container border border-primary-container rounded px-2 py-0.5 shadow-[2px_2px_0_0_rgba(0,0,0,0.6)]">
+            <span className="material-symbols-outlined text-[12px] text-on-primary">verified</span>
+            <span className="font-mono text-[9px] text-on-primary font-bold uppercase tracking-wider">
+              Ruta Oficial
+            </span>
+          </div>
+        )}
+
         {/* Color de presas */}
         <div className="absolute top-2.5 right-2.5 flex items-center gap-1 bg-background/90 backdrop-blur border border-outline-variant rounded-full px-2 py-1">
           <span className="w-3 h-3 rounded-full border border-white/30" style={{ backgroundColor: beta.holdColor }}></span>

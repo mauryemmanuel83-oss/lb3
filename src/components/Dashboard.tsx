@@ -1,16 +1,17 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Beta, ClimberStats, ActivityMatrixDay } from '../types';
+import { Beta, ActivityMatrixDay, UserStats, RankingRow } from '../types';
 import { BOULDER_GRADES, SPORT_GRADES } from '../data';
 import { computeDisciplineStats, AscentWithBeta } from '../lib/ascents';
 import { Mascot } from './Mascot';
-import { fetchRanking, RankingEntry } from '../api';
+import { fetchRanking } from '../api';
 
 interface DashboardProps {
-  stats: ClimberStats;
+  dbStats: UserStats | null; // viene de la vista user_stats (fuente de verdad)
   myBetas: Beta[];
   myAscents: AscentWithBeta[];
   username: string;
   userId: string;
+  isModerator: boolean;
   activityData: ActivityMatrixDay[];
   onSelectBeta: (betaId: string) => void;
   onNavigateToBuild: () => void;
@@ -19,29 +20,62 @@ interface DashboardProps {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
-  stats,
+  dbStats,
   myBetas,
   myAscents,
   username,
   userId,
+  isModerator,
   activityData,
   onSelectBeta,
   onNavigateToBuild,
   onDeleteBeta,
   onLogout
 }) => {
-  const [ranking, setRanking] = useState<RankingEntry[] | null>(null);
+  const [ranking, setRanking] = useState<RankingRow[] | null>(null);
   const [rankingError, setRankingError] = useState(false);
 
-  const boulderStats = useMemo(() => computeDisciplineStats(myAscents, 'boulder'), [myAscents]);
-  const sportStats = useMemo(() => computeDisciplineStats(myAscents, 'deportiva'), [myAscents]);
+  // Preferimos los datos de la DB; si la vista aún no existe, calculamos local.
+  const localBoulder = useMemo(() => computeDisciplineStats(myAscents, 'boulder'), [myAscents]);
+  const localSport = useMemo(() => computeDisciplineStats(myAscents, 'deportiva'), [myAscents]);
+
+  const boulderStats = dbStats
+    ? {
+        hasAny: dbStats.maxBoulderIndex >= 0 || localBoulder.hasAny,
+        maxGrade: dbStats.maxBoulderIndex >= 0 ? BOULDER_GRADES[dbStats.maxBoulderIndex] : null,
+        sends: localBoulder.sends,
+        flash: localBoulder.flash,
+        projects: localBoulder.projects
+      }
+    : localBoulder;
+
+  const sportStats = dbStats
+    ? {
+        hasAny: dbStats.maxSportIndex >= 0 || localSport.hasAny,
+        maxGrade: dbStats.maxSportIndex >= 0 ? SPORT_GRADES[dbStats.maxSportIndex] : null,
+        redpoints: dbStats.redpointCount,
+        lead: dbStats.leadCount,
+        topRope: dbStats.topRopeCount
+      }
+    : localSport;
+
+  // Beta Score y totales: siempre de la DB cuando está disponible
+  const betaScore = dbStats?.betaScore ?? 0;
+  const betasCompleted = dbStats?.betasCompleted ?? localBoulder.sends + localSport.sends;
+  const activeProjects = dbStats?.activeProjects ?? localBoulder.projects + localSport.projects;
+  const betasPublished = dbStats?.betasPublished ?? myBetas.length;
+  const level = Math.floor(betaScore / 500) + 1;
 
   // Ranking del gym en vivo
   useEffect(() => {
+    if (isModerator) return; // el moderador no compite: no cargamos ranking
     fetchRanking()
-      .then(setRanking)
+      .then((r) => {
+        if (r === null) setRankingError(true);
+        else setRanking(r);
+      })
       .catch(() => setRankingError(true));
-  }, [myBetas.length]);
+  }, [isModerator, betaScore, myBetas.length]);
 
   // Distribución de grados desde TUS betas reales (sin datos inventados)
   const gradeDistribution = useMemo(() => {
@@ -88,19 +122,31 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return 'bg-primary-container text-on-primary shadow-[0_0_8px_#facc15]';
   };
 
-  const myRankPosition = ranking ? ranking.findIndex((r) => r.userId === userId) + 1 : 0;
+  // La posición viene de la vista ranking (ya calculada en la DB con desempates)
+  const myRankPosition = ranking?.find((r) => r.userId === userId)?.position ?? 0;
 
   return (
     <div className="w-full flex flex-col gap-6">
       {/* Header */}
       <div className="flex justify-between items-end card-in">
         <div>
-          <h2 className="font-display font-black text-3xl md:text-4xl text-primary-container tracking-tight" id="dashboard-title">
+          <h2 className="font-display font-black text-3xl md:text-4xl text-primary-container tracking-tight flex items-center gap-2" id="dashboard-title">
             @{username}
+            {isModerator && (
+              <span className="material-symbols-outlined text-[24px] text-primary-container" title="Moderador">
+                shield_person
+              </span>
+            )}
           </h2>
           <p className="font-mono text-xs text-on-surface-variant mt-2 uppercase tracking-wider">
-            Nivel {stats.level} // Pirqa Lima
-            {myRankPosition > 0 && ` // #${myRankPosition} del gym`}
+            {isModerator ? (
+              <>Moderador // Pirqa Lima // Fuera de ranking</>
+            ) : (
+              <>
+                Nivel {level} // Pirqa Lima
+                {myRankPosition > 0 && ` // #${myRankPosition} del gym`}
+              </>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2.5">
@@ -119,9 +165,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
+      {/* El moderador representa al gimnasio: no puntúa ni compite */}
+      {isModerator && (
+        <div className="bg-primary-container/10 border border-primary-container/40 rounded-xl p-4 flex items-start gap-3 card-in">
+          <span className="material-symbols-outlined text-primary-container text-[22px] mt-0.5">shield_person</span>
+          <p className="font-sans text-xs text-on-surface leading-relaxed">
+            <strong className="text-primary-container">Cuenta de moderador.</strong> Representas al gimnasio: tus betas
+            se publican como <strong>Rutas Oficiales</strong>. No sumas Beta Score, no apareces en el ranking y no
+            generas estadísticas personales.
+          </p>
+        </div>
+      )}
+
       {/* Bento de stats reales */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-        {/* Score */}
+        {/* Score (solo usuarios normales) */}
+        {!isModerator && (
         <div
           className="md:col-span-12 lg:col-span-8 bg-[#18181B] border border-[#3F3F46] rounded-xl overflow-hidden relative shadow-[4px_4px_0_0_#facc15] transition-all hover:-translate-y-0.5 duration-200"
           id="card-beta-score"
@@ -136,16 +195,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <div className="mt-8 flex flex-col sm:flex-row sm:items-baseline gap-2 sm:gap-4">
               <span className="font-display font-black text-white tracking-tighter text-6xl md:text-7xl">
-                {stats.globalBetaScore.toLocaleString()}
+                {betaScore.toLocaleString()}
               </span>
               <span className="font-mono text-xs text-primary-container bg-primary-container/10 px-2.5 py-1 rounded border border-primary-container/20 w-fit">
-                150 pts por beta · 25 por recomendación
+                {betasCompleted} completadas · {activeProjects} proyectos
               </span>
             </div>
             <p className="font-sans text-[11px] text-on-surface-variant/70 uppercase tracking-wide mt-3">
-              {stats.globalBetaScore === 0
-                ? 'Publica tu primera beta para sumar puntos'
-                : 'Puntos ganados compartiendo conocimiento'}
+              {betaScore === 0
+                ? 'Registra un ascenso para sumar puntos'
+                : 'Puntos por dificultad, resultado y tipo de ascenso'}
             </p>
           </div>
           <div
@@ -153,9 +212,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
             style={{ backgroundImage: 'radial-gradient(circle at bottom right, #facc15 0%, transparent 70%)' }}
           ></div>
         </div>
+        )}
 
         {/* Métricas */}
-        <div className="md:col-span-12 lg:col-span-4 grid grid-cols-2 lg:grid-cols-1 gap-5">
+        <div className={`md:col-span-12 grid grid-cols-2 gap-5 ${isModerator ? '' : 'lg:col-span-4 lg:grid-cols-1'}`}>
           <div className="bg-[#18181B] border border-[#3F3F46] rounded-xl p-4 flex flex-col justify-center relative group overflow-hidden">
             <div className="absolute -right-2 -top-2 opacity-10 text-primary-container transition-transform group-hover:scale-110 duration-300">
               <span className="material-symbols-outlined text-[64px]">route</span>
@@ -165,8 +225,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <span className="font-mono text-xs text-on-surface-variant uppercase">Betas</span>
             </div>
             <div className="flex items-baseline gap-2 relative z-10">
-              <span className="font-display font-black text-2xl md:text-3xl text-white">{stats.betasPublished}</span>
-              <span className="font-mono text-[10px] text-on-surface-variant">publicadas</span>
+              <span className="font-display font-black text-2xl md:text-3xl text-white">{betasPublished}</span>
+              <span className="font-mono text-[10px] text-on-surface-variant">
+                {isModerator ? 'oficiales' : 'publicadas'}
+              </span>
             </div>
           </div>
 
@@ -180,7 +242,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <div className="flex items-baseline gap-2 relative z-10">
               <span className="font-display font-black text-2xl md:text-3xl text-primary-container">
-                {boulderStats.projects + sportStats.projects}
+                {activeProjects}
               </span>
               <span className="font-mono text-[10px] text-on-surface-variant">activos</span>
             </div>
@@ -195,14 +257,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <span className="font-mono text-xs text-on-surface-variant uppercase">Recomendaciones</span>
             </div>
             <div className="flex items-baseline gap-2 relative z-10">
-              <span className="font-display font-black text-2xl md:text-3xl text-white">{stats.recsReceived}</span>
+              <span className="font-display font-black text-2xl md:text-3xl text-white">
+                {myBetas.reduce((acc, b) => acc + b.recommendations, 0)}
+              </span>
               <span className="font-mono text-[10px] text-on-surface-variant">recibidas</span>
             </div>
           </div>
         </div>
 
-        {/* ─── ASCENSOS POR DISCIPLINA ─── */}
-        {(boulderStats.hasAny || sportStats.hasAny) ? (
+        {/* ─── ASCENSOS POR DISCIPLINA (el moderador no genera stats) ─── */}
+        {isModerator ? null : (boulderStats.hasAny || sportStats.hasAny) ? (
           <>
             {boulderStats.hasAny && (
               <div className="md:col-span-6 bg-[#18181B] border border-[#3F3F46] rounded-xl p-5" id="stats-boulder">
@@ -243,7 +307,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         )}
 
-        {/* ─── RANKING DEL GYM ─── */}
+        {/* ─── RANKING DEL GYM (el moderador no compite) ─── */}
+        {!isModerator && (
         <div className="md:col-span-12 lg:col-span-6 bg-[#18181B] border border-[#3F3F46] rounded-xl p-6" id="ranking-card">
           <div className="flex justify-between items-center mb-5">
             <h3 className="font-display font-bold text-sm text-white uppercase tracking-wider flex items-center gap-2">
@@ -254,7 +319,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
 
           {rankingError ? (
-            <p className="text-xs text-on-surface-variant/70 italic">No se pudo cargar el ranking.</p>
+            <p className="text-xs text-on-surface-variant/70 italic">
+              El ranking se activa al correr la migración 005 en Supabase.
+            </p>
           ) : !ranking ? (
             <div className="flex flex-col gap-2">
               {[0, 1, 2].map((i) => (
@@ -265,9 +332,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <p className="text-xs text-on-surface-variant/70 italic">Aún no hay escaladores registrados.</p>
           ) : (
             <div className="flex flex-col gap-1.5">
-              {ranking.slice(0, 10).map((entry, idx) => {
+              {ranking.slice(0, 10).map((entry) => {
                 const isMe = entry.userId === userId;
-                const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null;
+                const medal = entry.position === 1 ? '🥇' : entry.position === 2 ? '🥈' : entry.position === 3 ? '🥉' : null;
                 return (
                   <div
                     key={entry.userId}
@@ -276,10 +343,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         ? 'bg-primary-container/10 border-primary-container/50'
                         : 'bg-surface border-outline-variant/40'
                     }`}
-                    id={`ranking-row-${idx + 1}`}
+                    id={`ranking-row-${entry.position}`}
                   >
                     <span className="font-mono text-xs font-bold w-7 text-center shrink-0">
-                      {medal || <span className="text-on-surface-variant">#{idx + 1}</span>}
+                      {medal || <span className="text-on-surface-variant">#{entry.position}</span>}
                     </span>
                     <span
                       className={`font-display font-bold text-sm truncate flex-1 ${
@@ -290,10 +357,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       {isMe && <span className="font-mono text-[9px] text-primary-container/70 ml-1.5">(tú)</span>}
                     </span>
                     <span className="font-mono text-[10px] text-on-surface-variant shrink-0 hidden sm:block">
-                      {entry.betasCount} betas · {entry.recsReceived} recs
+                      {entry.betasCompleted} envíos · {entry.betasPublished} betas
                     </span>
                     <span className="font-display font-black text-sm text-white shrink-0">
-                      {entry.score.toLocaleString()}
+                      {entry.betaScore.toLocaleString()}
                     </span>
                   </div>
                 );
@@ -301,9 +368,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           )}
         </div>
+        )}
 
         {/* Matriz de consistencia (real) */}
-        <div className="md:col-span-12 lg:col-span-6 bg-[#18181B] border border-[#3F3F46] rounded-xl p-6">
+        <div className={`md:col-span-12 bg-[#18181B] border border-[#3F3F46] rounded-xl p-6 ${isModerator ? '' : 'lg:col-span-6'}`}>
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-display font-bold text-sm text-white uppercase tracking-wider">
               Matriz de Consistencia
