@@ -31,14 +31,15 @@ export const BetaCard: React.FC<BetaCardProps> = ({ beta, onSelect, index = 0 })
     >
       {/* Foto con anotaciones en miniatura */}
       <div className="relative w-full aspect-[4/3] bg-surface-container-lowest overflow-hidden">
+        {/* El listado SIEMPRE usa la miniatura (~30 KB), nunca la foto original */}
         <img
-          src={beta.imageUrl}
+          src={beta.thumbnailUrl}
           alt={beta.name}
           loading="lazy"
+          decoding="async"
           className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04] ${
             isStale ? 'grayscale-[60%] opacity-80' : ''
           }`}
-          referrerPolicy="no-referrer"
         />
 
         {/* Badge de estado del ciclo de vida (solo si no está activa) */}
@@ -96,7 +97,7 @@ export const BetaCard: React.FC<BetaCardProps> = ({ beta, onSelect, index = 0 })
         <div className="flex items-center gap-3 mt-2.5 pt-2.5 border-t border-outline-variant/30">
           <span className="flex items-center gap-1 font-mono text-[10px] text-on-surface-variant">
             <span className="material-symbols-outlined text-[14px]">chat_bubble</span>
-            {beta.comments.length}
+            {beta.commentsCount}
           </span>
           <span
             className={`flex items-center gap-1 font-mono text-[10px] ${

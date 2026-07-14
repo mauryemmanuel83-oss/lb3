@@ -1,4 +1,5 @@
 import { supabase } from './lib/supabase';
+import { uploadPhoto, deletePhotoFiles, prepareFromDataUrl } from './lib/storage';
 import {
   Beta,
   Comment,
@@ -132,7 +133,6 @@ interface BetaRow {
   hold_color: string;
   styles: string[];
   notes: string;
-  image_data: string;
   markers: Marker[];
   strokes: Stroke[];
   texts: TextLabel[];
@@ -147,14 +147,14 @@ interface BetaRow {
   official?: boolean;
   hidden?: boolean;
   banned?: boolean;
+  // Fotos en Storage (migración 006).
+  photo_url?: string | null;
+  thumbnail_url?: string | null;
+  // Base64 viejo: solo llega por la consulta de respaldo, antes de migrar.
+  image_data?: string | null;
   profiles: { username: string } | null;
-  comments: {
-    id: string;
-    text: string;
-    created_at: string;
-    author_id: string;
-    profiles: { username: string } | null;
-  }[];
+  // Solo contadores: el listado nunca baja el texto de los comentarios
+  comments: { count: number }[];
   recommendations: { user_id: string }[];
 }
 
@@ -206,7 +206,10 @@ const rowToBeta = (
     holdColor: row.hold_color,
     styles: row.styles || [],
     notes: row.notes || '',
-    imageUrl: row.image_data,
+    // Prioridad: URL de Storage → (respaldo) Base64 viejo aún sin migrar
+    photoUrl: row.photo_url || row.image_data || '',
+    // Si aún no hay miniatura, cae al original
+    thumbnailUrl: row.thumbnail_url || row.photo_url || row.image_data || '',
     markers: row.markers || [],
     strokes: row.strokes || [],
     texts: row.texts || [],
@@ -214,16 +217,7 @@ const rowToBeta = (
     createdAt: timeAgo(row.created_at),
     createdAtISO: row.created_at,
     author: row.profiles?.username || 'escalador',
-    comments: (row.comments || [])
-      .sort((a, b) => a.created_at.localeCompare(b.created_at))
-      .map(
-        (c): Comment => ({
-          id: c.id,
-          author: c.profiles?.username || 'escalador',
-          text: c.text,
-          createdAt: timeAgo(c.created_at)
-        })
-      ),
+    commentsCount: row.comments?.[0]?.count ?? 0,
     recommendations: (row.recommendations || []).length,
     recommendedByMe: currentUserId ? (row.recommendations || []).some((r) => r.user_id === currentUserId) : false,
     status: (row.status as BetaStatus) || 'active',
@@ -240,17 +234,45 @@ const rowToBeta = (
   };
 };
 
-const BETA_SELECT = `*,
+// Columnas explícitas: NUNCA se pide `*` (traería el Base64 viejo) ni el
+// texto de los comentarios. Del listado solo viajan URLs y metadatos.
+// Las anotaciones (markers/strokes/texts) son JSON de unos pocos KB y se
+// incluyen porque las tarjetas dibujan la beta en miniatura.
+const BETA_SELECT = `
+  id, author_id, name, grade, wall_id, hold_color, styles, notes,
+  photo_url, thumbnail_url, markers, strokes, texts,
+  active_project, created_at, status, version, replaced_by, replaces,
+  official, hidden, banned,
   profiles:author_id (username),
-  comments (id, text, created_at, author_id, profiles:author_id (username)),
+  comments (count),
   recommendations (user_id)`;
 
+// Consulta de respaldo para el momento en que el código ya está desplegado
+// pero la migración 006 todavía no se corrió (aún no existen photo_url ni
+// thumbnail_url). Así la app nunca se queda rota entre un paso y otro.
+const BETA_SELECT_LEGACY = BETA_SELECT.replace('photo_url, thumbnail_url,', 'image_data,');
+
 export const fetchBetas = async (currentUserId: string | null): Promise<Beta[]> => {
-  const { data, error } = await supabase
+  const primary = await supabase
     .from('betas')
     .select(BETA_SELECT)
     .order('created_at', { ascending: false });
+
+  let rows: unknown = primary.data;
+  let error = primary.error;
+
+  // ¿Todavía no existen las columnas de Storage? Usamos el esquema viejo.
+  if (error && /photo_url|thumbnail_url|column/i.test(error.message)) {
+    const legacy = await supabase
+      .from('betas')
+      .select(BETA_SELECT_LEGACY)
+      .order('created_at', { ascending: false });
+    rows = legacy.data;
+    error = legacy.error;
+  }
+
   if (error) throw new Error(error.message);
+  const data = rows as BetaRow[];
 
   // Los reportes viven en su propia tabla. Antes de correr la migración 002
   // esa tabla no existe: en ese caso seguimos sin reportes (degradación grácil).
@@ -270,7 +292,7 @@ export const fetchBetas = async (currentUserId: string | null): Promise<Beta[]> 
     }
   }
 
-  return (data as unknown as BetaRow[]).map((row) => rowToBeta(row, currentUserId, reports, myAscentRows));
+  return data.map((row) => rowToBeta(row, currentUserId, reports, myAscentRows));
 };
 
 export interface NewBetaInput {
@@ -280,7 +302,8 @@ export interface NewBetaInput {
   holdColor: string;
   styles: string[];
   notes: string;
-  imageData: string;
+  photoUrl: string; // ya subida a Storage
+  thumbnailUrl: string;
   markers: Marker[];
   strokes: Stroke[];
   texts: TextLabel[];
@@ -300,7 +323,9 @@ export const publishBeta = async (
     hold_color: input.holdColor,
     styles: input.styles,
     notes: input.notes,
-    image_data: input.imageData,
+    // Solo referencias: la foto vive en Storage
+    photo_url: input.photoUrl,
+    thumbnail_url: input.thumbnailUrl,
     markers: input.markers,
     strokes: input.strokes,
     texts: input.texts
@@ -387,9 +412,43 @@ export const deleteAscent = async (ascentId: string): Promise<void> => {
 };
 
 export const deleteBeta = async (betaId: string): Promise<void> => {
+  // Antes de borrar la fila, recuperamos las URLs para limpiar Storage:
+  // si no, los archivos quedarían huérfanos ocupando espacio.
+  const { data: row } = await supabase
+    .from('betas')
+    .select('photo_url, thumbnail_url')
+    .eq('id', betaId)
+    .single();
+
   const { error } = await supabase.from('betas').delete().eq('id', betaId);
   if (error) throw new Error(error.message);
+
+  if (row) await deletePhotoFiles(row.photo_url, row.thumbnail_url);
 };
+
+// ─── Comentarios: se cargan al abrir la beta, no en el listado ──
+export const fetchBetaComments = async (betaId: string): Promise<Comment[]> => {
+  const { data, error } = await supabase
+    .from('comments')
+    .select('id, text, created_at, profiles:author_id (username)')
+    .eq('beta_id', betaId)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(error.message);
+
+  return (data as unknown as CommentRow[]).map((c) => ({
+    id: c.id,
+    author: c.profiles?.username || 'escalador',
+    text: c.text,
+    createdAt: timeAgo(c.created_at)
+  }));
+};
+
+interface CommentRow {
+  id: string;
+  text: string;
+  created_at: string;
+  profiles: { username: string } | null;
+}
 
 // ─── Comentarios y recomendaciones ───────────────────────────
 export const addComment = async (userId: string, betaId: string, text: string): Promise<void> => {
@@ -429,6 +488,70 @@ const mapStats = (r: any): UserStats => ({
   betasPublished: r.betas_published ?? 0,
   lastAscentAt: r.last_ascent_at ?? null
 });
+
+// ─── Migración: Base64 antiguo → Supabase Storage ────────────
+// Solo un moderador puede correrla (RLS le permite editar cualquier beta).
+// Nunca borra nada hasta confirmar que la subida funcionó.
+
+export const countLegacyBase64Betas = async (): Promise<number> => {
+  const { count, error } = await supabase
+    .from('betas')
+    .select('id', { count: 'exact', head: true })
+    .like('image_data', 'data:%');
+  if (error) return 0; // la columna ya no existe → nada que migrar
+  return count ?? 0;
+};
+
+export interface MigrationResult {
+  migradas: number;
+  fallidas: number;
+  errores: string[];
+}
+
+export const migrateLegacyImages = async (
+  onProgress?: (done: number, total: number) => void
+): Promise<MigrationResult> => {
+  const { data, error } = await supabase
+    .from('betas')
+    .select('id, image_data')
+    .like('image_data', 'data:%');
+
+  if (error) throw new Error(error.message);
+  const pendientes = data || [];
+  const result: MigrationResult = { migradas: 0, fallidas: 0, errores: [] };
+
+  for (let i = 0; i < pendientes.length; i++) {
+    const beta = pendientes[i] as { id: string; image_data: string };
+    try {
+      // 1. Base64 → foto + miniatura, 2. subir, 3. guardar URLs,
+      // 4. solo entonces vaciar el Base64.
+      const blobs = await prepareFromDataUrl(beta.image_data);
+      const uploaded = await uploadPhoto(blobs);
+
+      const { error: updErr } = await supabase
+        .from('betas')
+        .update({
+          photo_url: uploaded.photoUrl,
+          thumbnail_url: uploaded.thumbnailUrl,
+          image_data: null
+        })
+        .eq('id', beta.id);
+
+      if (updErr) {
+        // La fila no se pudo actualizar: quitamos los archivos recién subidos
+        await deletePhotoFiles(uploaded.photoUrl, uploaded.thumbnailUrl);
+        throw new Error(updErr.message);
+      }
+      result.migradas++;
+    } catch (err) {
+      result.fallidas++;
+      result.errores.push(`${beta.id}: ${err instanceof Error ? err.message : 'error'}`);
+    }
+    onProgress?.(i + 1, pendientes.length);
+  }
+
+  return result;
+};
 
 export const fetchUserStats = async (userId: string): Promise<UserStats | null> => {
   const { data, error } = await supabase.from('user_stats').select('*').eq('user_id', userId).single();

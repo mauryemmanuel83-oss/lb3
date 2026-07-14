@@ -522,7 +522,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       </span>
                       <span className="font-mono text-[9px] text-on-surface-variant flex items-center gap-0.5">
                         <span className="material-symbols-outlined text-[11px]">chat_bubble</span>
-                        {beta.comments.length}
+                        {beta.commentsCount}
                       </span>
                       <span className="font-mono text-[9px] text-on-surface-variant flex items-center gap-0.5">
                         <span className="material-symbols-outlined text-[11px]">thumb_up</span>

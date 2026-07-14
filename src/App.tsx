@@ -201,16 +201,10 @@ export default function App() {
 
   const handleAddComment = async (betaId: string, text: string) => {
     if (!user) return;
-    // Optimista: aparece al instante
+    // El comentario ya se ve al instante en el detalle; aquí solo subimos
+    // el contador del listado de forma optimista.
     setBetas((prev) =>
-      prev.map((b) =>
-        b.id === betaId
-          ? {
-              ...b,
-              comments: [...b.comments, { id: `tmp-${Date.now()}`, author: user.username, text, createdAt: 'Ahora' }]
-            }
-          : b
-      )
+      prev.map((b) => (b.id === betaId ? { ...b, commentsCount: b.commentsCount + 1 } : b))
     );
     try {
       await api.addComment(user.id, betaId, text);

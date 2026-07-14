@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Wall } from '../types';
 import { gradesForWallType } from '../data';
 import { NewBetaInput } from '../api';
+import { preparePhoto, uploadPhoto, PreparedPhoto } from '../lib/storage';
 import { BetaEditor, EditorSnapshot, EMPTY_SNAPSHOT } from './BetaEditor';
 import { Mascot } from './Mascot';
 
@@ -35,33 +36,14 @@ const HOLD_COLORS = [
   { name: 'Blanco', hex: '#f4f4f5' }
 ];
 
-// Comprime la foto de cámara a un dataURL liviano para localStorage
-const compressImage = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const MAX = 1400;
-      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(img.width * scale);
-      canvas.height = Math.round(img.height * scale);
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return reject(new Error('canvas'));
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL('image/jpeg', 0.8));
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('img'));
-    };
-    img.src = url;
-  });
-
 /**
  * Flujo de creación de Beta, sin desvíos:
  * Elegir muro → Tomar foto → Dibujar beta → Publicar.
+ *
+ * La foto se prepara en memoria (foto + miniatura) mientras se dibuja, y
+ * se sube a Supabase Storage al publicar. Así la original nunca se toca,
+ * las anotaciones viajan como JSON aparte, y no quedan archivos huérfanos
+ * si el usuario abandona el flujo a mitad.
  */
 export const Build: React.FC<BuildProps> = ({
   walls,
@@ -73,7 +55,8 @@ export const Build: React.FC<BuildProps> = ({
   const initialWall = walls.find((w) => w.id === initialWallId) || null;
   const [step, setStep] = useState<Step>(initialWall ? 'photo' : 'wall');
   const [wall, setWall] = useState<Wall | null>(initialWall);
-  const [photo, setPhoto] = useState<string | null>(null);
+  // La foto vive en memoria (Blob) hasta que se publica
+  const [photo, setPhoto] = useState<PreparedPhoto | null>(null);
   const [loadingPhoto, setLoadingPhoto] = useState(false);
   const [snapshot, setSnapshot] = useState<EditorSnapshot>(EMPTY_SNAPSHOT);
 
@@ -117,8 +100,11 @@ export const Build: React.FC<BuildProps> = ({
     if (!file) return;
     setLoadingPhoto(true);
     try {
-      const dataUrl = await compressImage(file);
-      setPhoto(dataUrl);
+      // Genera foto original + miniatura como Blob (nada de Base64)
+      const prepared = await preparePhoto(file);
+      // Libera la previsualización anterior si repitió la foto
+      if (photo) URL.revokeObjectURL(photo.previewUrl);
+      setPhoto(prepared);
       setSnapshot(EMPTY_SNAPSHOT);
       setStep('draw');
     } catch {
@@ -127,6 +113,13 @@ export const Build: React.FC<BuildProps> = ({
       setLoadingPhoto(false);
     }
   };
+
+  // Al salir del flujo, liberamos la previsualización local
+  useEffect(() => {
+    return () => {
+      if (photo) URL.revokeObjectURL(photo.previewUrl);
+    };
+  }, [photo]);
 
   const toggleStyle = (style: string) => {
     setStyles((prev) => (prev.includes(style) ? prev.filter((s) => s !== style) : [...prev, style]));
@@ -139,14 +132,18 @@ export const Build: React.FC<BuildProps> = ({
 
     const finalName = routeName.trim() || `Ruta ${grade} · ${wall.name}`;
     try {
-      // Publica de verdad en Supabase mientras la mascota escala
+      // 1. Sube la foto original y su miniatura a Supabase Storage
+      const uploaded = await uploadPhoto(photo);
+
+      // 2. Guarda en la base SOLO las URLs + las anotaciones como JSON
       await onPublish({
         name: finalName,
         grade,
         styles,
         holdColor,
         notes: notes.trim(),
-        imageData: photo,
+        photoUrl: uploaded.photoUrl,
+        thumbnailUrl: uploaded.thumbnailUrl,
         markers: snapshot.markers,
         strokes: snapshot.strokes,
         texts: snapshot.texts,
@@ -374,7 +371,8 @@ export const Build: React.FC<BuildProps> = ({
       {/* ─── PASO 3: Dibujar ─── */}
       {step === 'draw' && photo && (
         <div className="flex flex-col gap-4 card-in">
-          <BetaEditor imageUrl={photo} initial={snapshot} onChange={setSnapshot} />
+          {/* El editor dibuja sobre la foto original (previsualización local) */}
+          <BetaEditor imageUrl={photo.previewUrl} initial={snapshot} onChange={setSnapshot} />
 
           <div className="flex gap-2.5">
             <button
@@ -402,7 +400,12 @@ export const Build: React.FC<BuildProps> = ({
         <div className="flex flex-col gap-5 card-in">
           {/* Mini-preview de lo dibujado */}
           <div className="flex items-center gap-4 bg-surface-container/60 border border-outline-variant/50 rounded-xl p-3">
-            <img src={photo} alt="Tu foto" className="w-16 h-16 rounded-lg object-cover border border-outline-variant" />
+            <img
+              src={photo.previewUrl}
+              alt="Tu foto"
+              loading="lazy"
+              className="w-16 h-16 rounded-lg object-cover border border-outline-variant"
+            />
             <div className="font-mono text-[10px] text-on-surface-variant leading-relaxed">
               <span className="text-white font-bold">{snapshot.markers.length}</span> marcadores ·{' '}
               <span className="text-white font-bold">{snapshot.strokes.length}</span> trazos ·{' '}

@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { Beta, Wall, ReportReason, AscentResult, AscentType } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Beta, Wall, ReportReason, AscentResult, AscentType, Comment } from '../types';
 import { BetaOverlay } from './BetaOverlay';
 import { STATUS_META } from '../lib/betaStatus';
 import { resultsForDiscipline, ASCENT_TYPES, resultLabel, resultIcon, typeLabel } from '../lib/ascents';
-import { REPORT_THRESHOLD, NewAscentInput } from '../api';
+import { REPORT_THRESHOLD, NewAscentInput, fetchBetaComments } from '../api';
 
 interface BetaDetailProps {
   beta: Beta;
@@ -42,6 +42,20 @@ export const BetaDetail: React.FC<BetaDetailProps> = ({
   const discipline = wall?.type || 'boulder';
   const [commentText, setCommentText] = useState('');
 
+  // Los comentarios NO viajan en el listado: se piden al abrir la beta.
+  const [comments, setComments] = useState<Comment[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setComments(null);
+    fetchBetaComments(beta.id)
+      .then((c) => alive && setComments(c))
+      .catch(() => alive && setComments([]));
+    return () => {
+      alive = false;
+    };
+  }, [beta.id]);
+
   // Estado del formulario de ascenso
   const [ascentResult, setAscentResult] = useState<AscentResult | null>(null);
   const [ascentType, setAscentType] = useState<AscentType>('lead');
@@ -56,6 +70,11 @@ export const BetaDetail: React.FC<BetaDetailProps> = ({
   const submitComment = () => {
     const clean = commentText.trim();
     if (!clean) return;
+    // Aparece al instante; el guardado real lo hace App
+    setComments((prev) => [
+      ...(prev || []),
+      { id: `tmp-${Date.now()}`, author: username, text: clean, createdAt: 'Ahora' }
+    ]);
     onAddComment(beta.id, clean);
     setCommentText('');
   };
@@ -101,11 +120,14 @@ export const BetaDetail: React.FC<BetaDetailProps> = ({
           {/* Foto anotada */}
           <div className="md:col-span-7 bg-surface-container-lowest relative border-b md:border-b-0 md:border-r border-outline-variant">
             <div className="relative w-full md:h-[640px]">
+              {/* Al abrir la beta sí cargamos la foto ORIGINAL desde Storage.
+                  Las anotaciones se dibujan encima con los datos JSON. */}
               <img
                 alt={beta.name}
                 className="w-full h-auto md:h-full md:object-cover block"
-                src={beta.imageUrl}
-                referrerPolicy="no-referrer"
+                src={beta.photoUrl || beta.thumbnailUrl}
+                loading="lazy"
+                decoding="async"
               />
               <div className="absolute inset-0">
                 <BetaOverlay markers={beta.markers} strokes={beta.strokes} texts={beta.texts} />
@@ -457,16 +479,22 @@ export const BetaDetail: React.FC<BetaDetailProps> = ({
               <div className="space-y-3">
                 <h4 className="font-mono text-[10px] text-on-surface-variant uppercase tracking-wider flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-[14px]">forum</span>
-                  Comentarios ({beta.comments.length})
+                  Comentarios ({comments ? comments.length : beta.commentsCount})
                 </h4>
 
-                {beta.comments.length === 0 ? (
+                {comments === null ? (
+                  <div className="flex flex-col gap-2">
+                    {[0, 1].map((i) => (
+                      <div key={i} className="skeleton h-12 rounded-lg"></div>
+                    ))}
+                  </div>
+                ) : comments.length === 0 ? (
                   <p className="text-xs text-on-surface-variant/60 italic">
                     Nadie ha comentado. ¿Encontraste otra solución? Compártela.
                   </p>
                 ) : (
                   <div className="flex flex-col gap-2.5">
-                    {beta.comments.map((c) => (
+                    {comments.map((c) => (
                       <div key={c.id} className="bg-surface-container border border-outline-variant/50 rounded-lg p-3 card-in">
                         <div className="flex items-center gap-2 mb-1.5">
                           <span className="font-mono text-[10px] font-bold text-primary-container">@{c.author}</span>

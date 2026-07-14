@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Beta, Wall } from '../types';
 import { Mascot } from './Mascot';
+import { countLegacyBase64Betas, migrateLegacyImages } from '../api';
 
 type ModFilter = 'all' | 'reported' | 'official' | 'hidden' | 'banned';
 
@@ -35,6 +36,33 @@ export const Moderation: React.FC<ModerationProps> = ({
 }) => {
   const [filter, setFilter] = useState<ModFilter>('all');
   const [wallFilter, setWallFilter] = useState<string>('all');
+
+  // Migración de fotos antiguas (Base64 en PostgreSQL → Storage)
+  const [legacyCount, setLegacyCount] = useState(0);
+  const [migrating, setMigrating] = useState<null | { done: number; total: number }>(null);
+
+  useEffect(() => {
+    countLegacyBase64Betas().then(setLegacyCount);
+  }, [betas.length]);
+
+  const runMigration = async () => {
+    if (migrating) return;
+    if (!confirm(`Se subirán ${legacyCount} fotos a Supabase Storage. ¿Continuar?`)) return;
+    setMigrating({ done: 0, total: legacyCount });
+    try {
+      const res = await migrateLegacyImages((done, total) => setMigrating({ done, total }));
+      alert(
+        res.fallidas === 0
+          ? `Listo: ${res.migradas} fotos migradas a Storage.`
+          : `Migradas ${res.migradas}, fallaron ${res.fallidas}.\n\n${res.errores.slice(0, 3).join('\n')}`
+      );
+      setLegacyCount(await countLegacyBase64Betas());
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'La migración falló.');
+    } finally {
+      setMigrating(null);
+    }
+  };
 
   const filtered = useMemo(() => {
     let list = betas;
@@ -87,6 +115,41 @@ export const Moderation: React.FC<ModerationProps> = ({
           Ruta oficial
         </button>
       </div>
+
+      {/* Migración de fotos antiguas: solo si quedan pendientes */}
+      {legacyCount > 0 && (
+        <div className="bg-amber-950/30 border border-amber-600/50 rounded-xl p-4 flex flex-col gap-3 card-in">
+          <div className="flex items-start gap-2.5">
+            <span className="material-symbols-outlined text-amber-300 text-[20px] mt-0.5">cloud_upload</span>
+            <p className="font-sans text-xs text-amber-100 leading-relaxed">
+              Hay <strong>{legacyCount}</strong> {legacyCount === 1 ? 'beta' : 'betas'} con la foto guardada dentro de
+              la base de datos (formato antiguo). Migrarlas a Storage libera espacio y acelera la app.
+            </p>
+          </div>
+          {migrating ? (
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 bg-surface-container-high rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-amber-500 rounded-full transition-all duration-300"
+                  style={{ width: `${migrating.total ? (migrating.done / migrating.total) * 100 : 0}%` }}
+                ></div>
+              </div>
+              <span className="font-mono text-[10px] text-amber-200 whitespace-nowrap">
+                {migrating.done} / {migrating.total}
+              </span>
+            </div>
+          ) : (
+            <button
+              onClick={runMigration}
+              className="h-11 bg-amber-600 text-white font-display font-bold text-xs uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 btn-punch shadow-[3px_3px_0_0_rgba(0,0,0,1)]"
+              id="btn-migrate-photos"
+            >
+              <span className="material-symbols-outlined text-[18px]">cloud_upload</span>
+              Migrar fotos antiguas
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Filtros por estado */}
       <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
@@ -164,9 +227,10 @@ export const Moderation: React.FC<ModerationProps> = ({
                   className="flex items-center gap-3 p-3 cursor-pointer hover:bg-surface-container/40 transition-colors"
                 >
                   <img
-                    src={beta.imageUrl}
+                    src={beta.thumbnailUrl}
                     alt={beta.name}
                     loading="lazy"
+                    decoding="async"
                     className={`w-14 h-14 rounded-lg object-cover border border-outline-variant shrink-0 ${
                       beta.banned || beta.hidden ? 'grayscale' : ''
                     }`}

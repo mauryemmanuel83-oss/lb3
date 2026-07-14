@@ -84,7 +84,9 @@ export interface Beta {
   styles: string[];
   holdColor: string;
   notes: string;
-  imageUrl: string; // foto tomada por el usuario (dataURL)
+  // Las fotos viven en Supabase Storage. La base solo guarda URLs.
+  photoUrl: string; // original, se usa al abrir la beta
+  thumbnailUrl: string; // miniatura, lo único que carga el listado
   markers: Marker[];
   strokes: Stroke[];
   texts: TextLabel[];
@@ -94,7 +96,7 @@ export interface Beta {
   author: string; // username del autor
   authorId: string; // uuid del autor en Supabase
   activeProject?: boolean;
-  comments: Comment[];
+  commentsCount: number; // el listado solo necesita el número
   recommendations: number;
   recommendedByMe?: boolean;
   // Ciclo de vida y versionado
