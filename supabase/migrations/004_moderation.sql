@@ -131,9 +131,18 @@ set encrypted_password = crypt('PIRQA26', gen_salt('bf')),
 where email = 'pirqa@escaladores.labeta.app';
 
 -- ─── RLS: permisos por ROL ──────────────────────────────────
--- Betas: todos ven las visibles; el autor ve las suyas aunque estén
+-- Borramos TANTO los nombres viejos como los nuevos, así este archivo
+-- se puede correr las veces que haga falta sin chocar consigo mismo.
+drop policy if exists "betas visibles para todos"      on public.betas;
+drop policy if exists "betas visibles segun moderacion" on public.betas;
+drop policy if exists "publicar beta propia"            on public.betas;
+drop policy if exists "editar beta propia"              on public.betas;
+drop policy if exists "editar beta propia o moderar"    on public.betas;
+drop policy if exists "borrar beta propia"              on public.betas;
+drop policy if exists "borrar beta propia o moderar"    on public.betas;
+
+-- Ver: todos ven las visibles; el autor ve las suyas aunque estén
 -- ocultas; el moderador lo ve todo.
-drop policy if exists "betas visibles para todos" on public.betas;
 create policy "betas visibles segun moderacion"
   on public.betas for select
   using (
@@ -143,19 +152,16 @@ create policy "betas visibles segun moderacion"
   );
 
 -- Crear: cada quien la suya (el moderador también crea las oficiales)
-drop policy if exists "publicar beta propia" on public.betas;
 create policy "publicar beta propia"
   on public.betas for insert
   with check (auth.uid() = author_id);
 
 -- Editar: el autor la suya; el moderador cualquiera
-drop policy if exists "editar beta propia" on public.betas;
 create policy "editar beta propia o moderar"
   on public.betas for update
   using (auth.uid() = author_id or public.is_moderator());
 
 -- Borrar: el autor la suya; el moderador cualquiera
-drop policy if exists "borrar beta propia" on public.betas;
 create policy "borrar beta propia o moderar"
   on public.betas for delete
   using (auth.uid() = author_id or public.is_moderator());
