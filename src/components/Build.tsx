@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Wall, Beta } from '../types';
+import { Wall } from '../types';
 import { gradesForWallType } from '../data';
+import { NewBetaInput } from '../api';
 import { BetaEditor, EditorSnapshot, EMPTY_SNAPSHOT } from './BetaEditor';
 import { Mascot } from './Mascot';
 
 interface BuildProps {
   walls: Wall[];
   initialWallId: string | null;
-  onPublish: (beta: Omit<Beta, 'id' | 'createdAt' | 'author' | 'comments' | 'recommendations'>) => void;
+  onPublish: (beta: NewBetaInput) => Promise<void>;
 }
 
 type Step = 'wall' | 'photo' | 'draw' | 'details';
@@ -75,7 +76,8 @@ export const Build: React.FC<BuildProps> = ({ walls, initialWallId, onPublish })
   const [holdColor, setHoldColor] = useState(HOLD_COLORS[0].hex);
   const [notes, setNotes] = useState('');
 
-  const [publishState, setPublishState] = useState<null | 'publishing' | 'success'>(null);
+  const [publishState, setPublishState] = useState<null | 'publishing' | 'success' | 'error'>(null);
+  const [publishError, setPublishError] = useState('');
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -122,30 +124,32 @@ export const Build: React.FC<BuildProps> = ({ walls, initialWallId, onPublish })
     setStyles((prev) => (prev.includes(style) ? prev.filter((s) => s !== style) : [...prev, style]));
   };
 
-  const handlePublish = () => {
-    if (!wall || !photo) return;
+  const handlePublish = async () => {
+    if (!wall || !photo || publishState) return;
     setPublishState('publishing');
+    setPublishError('');
 
-    // La mascota sube mientras "publica"; luego celebra
-    setTimeout(() => {
+    const finalName = routeName.trim() || `Ruta ${grade} · ${wall.name}`;
+    try {
+      // Publica de verdad en Supabase mientras la mascota escala
+      await onPublish({
+        name: finalName,
+        grade,
+        styles,
+        holdColor,
+        notes: notes.trim(),
+        imageData: photo,
+        markers: snapshot.markers,
+        strokes: snapshot.strokes,
+        texts: snapshot.texts,
+        wallId: wall.id
+      });
       setPublishState('success');
-      setTimeout(() => {
-        const finalName = routeName.trim() || `Ruta ${grade} · ${wall.name}`;
-        onPublish({
-          name: finalName,
-          grade,
-          styles,
-          holdColor,
-          notes: notes.trim(),
-          imageUrl: photo,
-          markers: snapshot.markers,
-          strokes: snapshot.strokes,
-          texts: snapshot.texts,
-          wallId: wall.id,
-          activeProject: false
-        });
-      }, 1300);
-    }, 1400);
+      // App ya navegó al perfil; el overlay se va con el unmount
+    } catch (err) {
+      setPublishState('error');
+      setPublishError(err instanceof Error ? err.message : 'No se pudo publicar. Revisa tu conexión.');
+    }
   };
 
   const grades = wall ? gradesForWallType(wall.type) : [];
@@ -154,16 +158,33 @@ export const Build: React.FC<BuildProps> = ({ walls, initialWallId, onPublish })
     <div className="w-full pb-10 max-w-3xl mx-auto">
       {/* ─── Overlay de publicación con mascota ─── */}
       {publishState && (
-        <div className="fixed inset-0 z-[70] bg-background/95 backdrop-blur-md flex flex-col items-center justify-center gap-6">
-          <div className="bg-surface-container border-2 border-outline-variant rounded-2xl p-6 shadow-[6px_6px_0_0_#facc15] pop-in">
+        <div className="fixed inset-0 z-[70] bg-background/95 backdrop-blur-md flex flex-col items-center justify-center gap-6 px-8">
+          <div
+            className={`bg-surface-container border-2 border-outline-variant rounded-2xl p-6 pop-in ${
+              publishState === 'error' ? 'shadow-[6px_6px_0_0_#ef4444]' : 'shadow-[6px_6px_0_0_#facc15]'
+            }`}
+          >
             <Mascot state={publishState} size={140} />
           </div>
-          <p className="font-display font-black text-xl text-white tracking-tight pop-in">
-            {publishState === 'publishing' ? 'Subiendo tu beta...' : '¡Beta publicada!'}
+          <p className="font-display font-black text-xl text-white tracking-tight pop-in text-center">
+            {publishState === 'publishing' && 'Subiendo tu beta...'}
+            {publishState === 'success' && '¡Beta publicada!'}
+            {publishState === 'error' && 'Ups, se resbaló'}
           </p>
-          <p className="font-mono text-[10px] text-on-surface-variant uppercase tracking-widest">
-            {publishState === 'publishing' ? 'La comunidad la verá en segundos' : '+150 pts de Beta Score'}
+          <p className="font-mono text-[10px] text-on-surface-variant uppercase tracking-widest text-center leading-relaxed max-w-sm">
+            {publishState === 'publishing' && 'La comunidad la verá en segundos'}
+            {publishState === 'success' && '+150 pts de Beta Score'}
+            {publishState === 'error' && publishError}
           </p>
+          {publishState === 'error' && (
+            <button
+              onClick={() => setPublishState(null)}
+              className="h-12 px-6 bg-primary-container text-on-primary font-display font-bold text-sm rounded-xl btn-punch shadow-[3px_3px_0_0_rgba(0,0,0,1)]"
+              id="btn-publish-retry"
+            >
+              Volver e intentar de nuevo
+            </button>
+          )}
         </div>
       )}
 

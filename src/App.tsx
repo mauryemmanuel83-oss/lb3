@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { Onboarding } from './components/Onboarding';
 import { Navbar } from './components/Navbar';
@@ -12,34 +12,10 @@ import { Explore } from './components/Explore';
 import { Build } from './components/Build';
 import { Dashboard } from './components/Dashboard';
 import { BetaDetail } from './components/BetaDetail';
-import { Beta, Wall, ClimberStats, ActivityMatrixDay, Tab, Comment } from './types';
-import { INITIAL_WALLS, INITIAL_BETAS, INITIAL_STATS, generateActivityMatrix } from './data';
-
-const BETAS_KEY = 'la_beta_betas_v2';
-const LEGACY_BETAS_KEY = 'la_beta_betas';
-
-// Migra betas del esquema antiguo (sectores ficticios) al nuevo (muros reales)
-const migrateLegacyBetas = (raw: string): Beta[] | null => {
-  try {
-    const old = JSON.parse(raw);
-    if (!Array.isArray(old)) return null;
-    const sectorToWall: Record<string, string> = {
-      cueva: 'zona-1-adentro',
-      placa: 'zona-3-afuera',
-      comp: 'zona-1-afuera'
-    };
-    return old.map((b: any) => ({
-      ...b,
-      wallId: b.wallId || sectorToWall[b.sectorId] || 'zona-1-adentro',
-      strokes: b.strokes || [],
-      texts: b.texts || [],
-      comments: b.comments || [],
-      recommendations: b.recommendations ?? 0
-    }));
-  } catch {
-    return null;
-  }
-};
+import { Beta, Wall, ClimberStats, Tab } from './types';
+import { INITIAL_WALLS, buildActivityMatrix } from './data';
+import { isSupabaseConfigured } from './lib/supabase';
+import * as api from './api';
 
 // Skeleton de carga inicial (shimmer)
 const AppSkeleton = () => (
@@ -68,102 +44,82 @@ const AppSkeleton = () => (
   </div>
 );
 
+// Pantalla de configuración pendiente (falta la anon key)
+const SetupScreen = () => (
+  <div className="min-h-screen bg-background bg-tech-grid flex items-center justify-center p-6">
+    <div className="max-w-lg bg-surface-container border border-outline-variant rounded-xl p-6 shadow-[4px_4px_0_0_#facc15] space-y-4">
+      <h1 className="font-display font-black text-xl text-primary-container">Falta conectar Supabase</h1>
+      <ol className="font-sans text-sm text-on-surface space-y-3 list-decimal list-inside leading-relaxed">
+        <li>
+          En el dashboard de Supabase ve a <strong>Project Settings → API Keys</strong> y copia la clave{' '}
+          <code className="bg-background px-1.5 py-0.5 rounded text-primary-container text-xs">anon / public</code>.
+        </li>
+        <li>
+          Pégala en el archivo <code className="bg-background px-1.5 py-0.5 rounded text-primary-container text-xs">.env.local</code>{' '}
+          del proyecto, en <code className="bg-background px-1.5 py-0.5 rounded text-primary-container text-xs">VITE_SUPABASE_ANON_KEY</code>.
+        </li>
+        <li>Reinicia el servidor de desarrollo.</li>
+      </ol>
+      <p className="font-mono text-[10px] text-on-surface-variant uppercase">
+        También corre supabase/setup.sql en el SQL Editor si aún no lo hiciste.
+      </p>
+    </div>
+  </div>
+);
+
 export default function App() {
-  const [username, setUsername] = useState<string | null>(null);
+  const [user, setUser] = useState<api.SessionUser | null>(null);
   const [isBooting, setIsBooting] = useState(true);
+  const [isLoadingBetas, setIsLoadingBetas] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [currentTab, setCurrentTab] = useState<Tab>('home');
 
   const [betas, setBetas] = useState<Beta[]>([]);
   const [walls] = useState<Wall[]>(INITIAL_WALLS);
-  const [stats, setStats] = useState<ClimberStats>(INITIAL_STATS);
-  const [activityData, setActivityData] = useState<ActivityMatrixDay[]>([]);
 
   const [selectedBetaId, setSelectedBetaId] = useState<string | null>(null);
   const [buildInitialWallId, setBuildInitialWallId] = useState<string | null>(null);
-  // Fuerza remount del wizard de creación al re-entrar
   const [buildSession, setBuildSession] = useState(0);
 
-  const persistBetas = (updated: Beta[]) => {
-    setBetas(updated);
+  const refreshBetas = useCallback(async (userId: string | null) => {
+    setIsLoadingBetas(true);
+    setLoadError(null);
     try {
-      localStorage.setItem(BETAS_KEY, JSON.stringify(updated));
-    } catch {
-      // Cuota llena: quita la beta más antigua con foto pesada y reintenta
-      const trimmed = updated.slice(0, Math.max(1, updated.length - 1));
-      try {
-        localStorage.setItem(BETAS_KEY, JSON.stringify(trimmed));
-      } catch {
-        /* sin espacio: seguimos solo en memoria */
-      }
+      const fresh = await api.fetchBetas(userId);
+      setBetas(fresh);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Error cargando betas');
+    } finally {
+      setIsLoadingBetas(false);
     }
-  };
-
-  // Carga inicial de datos persistentes
-  useEffect(() => {
-    const savedUser = localStorage.getItem('la_beta_username');
-    if (savedUser) setUsername(savedUser);
-
-    const savedBetas = localStorage.getItem(BETAS_KEY);
-    if (savedBetas) {
-      try {
-        setBetas(JSON.parse(savedBetas));
-      } catch {
-        setBetas(INITIAL_BETAS);
-      }
-    } else {
-      const legacy = localStorage.getItem(LEGACY_BETAS_KEY);
-      const migrated = legacy ? migrateLegacyBetas(legacy) : null;
-      const initial = migrated && migrated.length > 0 ? migrated : INITIAL_BETAS;
-      setBetas(initial);
-      try {
-        localStorage.setItem(BETAS_KEY, JSON.stringify(initial));
-      } catch {
-        /* noop */
-      }
-    }
-
-    const savedStats = localStorage.getItem('la_beta_stats');
-    if (savedStats) {
-      try {
-        setStats(JSON.parse(savedStats));
-      } catch {
-        setStats(INITIAL_STATS);
-      }
-    } else {
-      setStats(INITIAL_STATS);
-      localStorage.setItem('la_beta_stats', JSON.stringify(INITIAL_STATS));
-    }
-
-    const savedActivity = localStorage.getItem('la_beta_activity');
-    if (savedActivity) {
-      try {
-        setActivityData(JSON.parse(savedActivity));
-      } catch {
-        const generated = generateActivityMatrix();
-        setActivityData(generated);
-        localStorage.setItem('la_beta_activity', JSON.stringify(generated));
-      }
-    } else {
-      const generated = generateActivityMatrix();
-      setActivityData(generated);
-      localStorage.setItem('la_beta_activity', JSON.stringify(generated));
-    }
-
-    // Pequeño beat para el skeleton (percepción de app real)
-    const t = setTimeout(() => setIsBooting(false), 650);
-    return () => clearTimeout(t);
   }, []);
 
-  const handleJoin = (newName: string) => {
-    setUsername(newName);
-    localStorage.setItem('la_beta_username', newName);
+  // Sesión persistida + carga inicial
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setIsBooting(false);
+      return;
+    }
+    (async () => {
+      const current = await api.getCurrentUser();
+      setUser(current);
+      if (current) await refreshBetas(current.id);
+      setIsBooting(false);
+    })();
+  }, [refreshBetas]);
+
+  const handleAuthenticated = async (newUser: api.SessionUser) => {
+    setUser(newUser);
     setCurrentTab('home');
+    await refreshBetas(newUser.id);
   };
 
-  const handleLogout = () => {
-    if (confirm('¿Deseas cerrar sesión en La Beta? Tus datos locales se conservarán en el navegador.')) {
-      setUsername(null);
-      localStorage.removeItem('la_beta_username');
+  const handleLogout = async () => {
+    if (confirm('¿Cerrar sesión en La Beta?')) {
+      await api.signOut();
+      setUser(null);
+      setBetas([]);
+      setCurrentTab('home');
     }
   };
 
@@ -182,112 +138,128 @@ export default function App() {
     setCurrentTab('build');
   };
 
-  // ─── Publicar una nueva Beta ───
-  const handlePublishBeta = (newBetaData: Omit<Beta, 'id' | 'createdAt' | 'author' | 'comments' | 'recommendations'>) => {
-    const newBeta: Beta = {
-      ...newBetaData,
-      id: `beta-${Date.now()}`,
-      createdAt: 'Hoy',
-      author: username || 'anon',
-      comments: [],
-      recommendations: 0
-    };
-
-    persistBetas([newBeta, ...betas]);
-
-    const scoreGain = 150;
-    const updatedStats: ClimberStats = {
-      ...stats,
-      globalBetaScore: stats.globalBetaScore + scoreGain,
-      sendsThisWeek: newBeta.activeProject ? stats.sendsThisWeek : stats.sendsThisWeek + 1,
-      activeProjects: newBeta.activeProject ? stats.activeProjects + 1 : stats.activeProjects
-    };
-    setStats(updatedStats);
-    localStorage.setItem('la_beta_stats', JSON.stringify(updatedStats));
-
-    const todayStr = new Date().toISOString().split('T')[0];
-    const updatedActivity = activityData.map((day) =>
-      day.date === todayStr ? { ...day, count: Math.min(day.count + 1, 4) } : day
-    );
-    setActivityData(updatedActivity);
-    localStorage.setItem('la_beta_activity', JSON.stringify(updatedActivity));
-
-    setBuildInitialWallId(null);
-    setCurrentTab('dashboard');
-    setSelectedBetaId(newBeta.id);
+  // ─── Publicar (async: la mascota espera el resultado real) ───
+  const handlePublishBeta = async (input: api.NewBetaInput): Promise<void> => {
+    if (!user) throw new Error('Sesión expirada. Vuelve a entrar.');
+    await api.publishBeta(user.id, input);
+    await refreshBetas(user.id);
+    // Deja 1.4s para que la mascota celebre antes de ir al perfil
+    setTimeout(() => {
+      setBuildInitialWallId(null);
+      setCurrentTab('dashboard');
+    }, 1400);
   };
 
-  const handleDeleteBeta = (betaId: string) => {
-    const deleted = betas.find((b) => b.id === betaId);
-    persistBetas(betas.filter((b) => b.id !== betaId));
-
-    if (deleted && deleted.author === username) {
-      const updatedStats = {
-        ...stats,
-        globalBetaScore: Math.max(stats.globalBetaScore - 150, 0)
-      };
-      setStats(updatedStats);
-      localStorage.setItem('la_beta_stats', JSON.stringify(updatedStats));
+  const handleDeleteBeta = async (betaId: string) => {
+    setBetas((prev) => prev.filter((b) => b.id !== betaId)); // optimista
+    try {
+      await api.deleteBeta(betaId);
+    } catch {
+      if (user) await refreshBetas(user.id);
+      alert('No se pudo eliminar la beta.');
     }
   };
 
-  const handleToggleProject = (betaId: string) => {
-    const modified = betas.find((b) => b.id === betaId);
-    persistBetas(betas.map((b) => (b.id === betaId ? { ...b, activeProject: !b.activeProject } : b)));
-
-    if (modified) {
-      const becomingSend = modified.activeProject;
-      const scoreAdjust = becomingSend ? 250 : -250;
-      const updatedStats = {
-        ...stats,
-        globalBetaScore: Math.max(stats.globalBetaScore + scoreAdjust, 0),
-        sendsThisWeek: becomingSend ? stats.sendsThisWeek + 1 : Math.max(stats.sendsThisWeek - 1, 0)
-      };
-      setStats(updatedStats);
-      localStorage.setItem('la_beta_stats', JSON.stringify(updatedStats));
+  const handleToggleProject = async (betaId: string) => {
+    const beta = betas.find((b) => b.id === betaId);
+    if (!beta) return;
+    const next = !beta.activeProject;
+    setBetas((prev) => prev.map((b) => (b.id === betaId ? { ...b, activeProject: next } : b)));
+    try {
+      await api.setBetaProject(betaId, next);
+    } catch {
+      if (user) await refreshBetas(user.id);
     }
   };
 
-  // ─── Comentarios y recomendaciones ───
-  const handleAddComment = (betaId: string, text: string) => {
-    const comment: Comment = {
-      id: `c-${Date.now()}`,
-      author: username || 'anon',
-      text,
-      createdAt: 'Ahora'
-    };
-    persistBetas(betas.map((b) => (b.id === betaId ? { ...b, comments: [...b.comments, comment] } : b)));
+  const handleAddComment = async (betaId: string, text: string) => {
+    if (!user) return;
+    // Optimista: aparece al instante
+    setBetas((prev) =>
+      prev.map((b) =>
+        b.id === betaId
+          ? {
+              ...b,
+              comments: [...b.comments, { id: `tmp-${Date.now()}`, author: user.username, text, createdAt: 'Ahora' }]
+            }
+          : b
+      )
+    );
+    try {
+      await api.addComment(user.id, betaId, text);
+    } catch {
+      await refreshBetas(user.id);
+      alert('No se pudo enviar el comentario.');
+    }
   };
 
-  const handleToggleRecommend = (betaId: string) => {
-    persistBetas(
-      betas.map((b) => {
-        if (b.id !== betaId) return b;
-        const recommendedByMe = !b.recommendedByMe;
-        return {
-          ...b,
-          recommendedByMe,
-          recommendations: Math.max(0, b.recommendations + (recommendedByMe ? 1 : -1))
-        };
-      })
+  const handleToggleRecommend = async (betaId: string) => {
+    if (!user) return;
+    const beta = betas.find((b) => b.id === betaId);
+    if (!beta) return;
+    const next = !beta.recommendedByMe;
+    setBetas((prev) =>
+      prev.map((b) =>
+        b.id === betaId
+          ? { ...b, recommendedByMe: next, recommendations: Math.max(0, b.recommendations + (next ? 1 : -1)) }
+          : b
+      )
     );
+    try {
+      await api.setRecommendation(user.id, betaId, next);
+    } catch {
+      await refreshBetas(user.id);
+    }
   };
+
+  // ─── Stats reales calculadas de los datos ───
+  const myBetas = useMemo(() => (user ? betas.filter((b) => b.authorId === user.id) : []), [betas, user]);
+
+  const stats: ClimberStats = useMemo(() => {
+    const recsReceived = myBetas.reduce((acc, b) => acc + b.recommendations, 0);
+    const score = myBetas.length * 150 + recsReceived * 25;
+    return {
+      globalBetaScore: score,
+      betasPublished: myBetas.length,
+      activeProjects: myBetas.filter((b) => b.activeProject).length,
+      recsReceived,
+      level: Math.floor(score / 500) + 1
+    };
+  }, [myBetas]);
+
+  const activityData = useMemo(() => buildActivityMatrix(myBetas), [myBetas]);
 
   const selectedBeta = betas.find((b) => b.id === selectedBetaId);
 
-  if (!username) {
-    return <Onboarding onJoin={handleJoin} />;
+  if (!isSupabaseConfigured) {
+    return <SetupScreen />;
   }
 
   if (isBooting) {
     return <AppSkeleton />;
   }
 
+  if (!user) {
+    return <Onboarding onAuthenticated={handleAuthenticated} />;
+  }
+
   return (
     <div className="min-h-screen bg-background text-on-surface font-sans bg-tech-grid pb-28 md:pb-6 pt-20">
-      <Navbar currentTab={currentTab} onChangeTab={changeTab} username={username} onLogout={handleLogout} />
+      <Navbar currentTab={currentTab} onChangeTab={changeTab} username={user.username} onLogout={handleLogout} />
 
       <main className="max-w-[1200px] mx-auto px-5 md:px-8 py-4">
+        {loadError && (
+          <div className="mb-4 bg-red-950/40 border border-red-700/60 rounded-lg p-3 flex items-center justify-between gap-3">
+            <p className="font-mono text-xs text-red-300">{loadError}</p>
+            <button
+              onClick={() => refreshBetas(user.id)}
+              className="font-mono text-[10px] font-bold text-white bg-red-800/60 px-3 py-1.5 rounded btn-punch shrink-0"
+            >
+              Reintentar
+            </button>
+          </div>
+        )}
+
         <motion.div
           key={currentTab}
           initial={{ opacity: 0, y: 14 }}
@@ -295,43 +267,46 @@ export default function App() {
           transition={{ duration: 0.22, ease: 'easeOut' }}
           className="flex flex-col gap-6"
         >
-            {currentTab === 'home' && (
-              <Home
-                username={username}
-                betas={betas}
-                onNavigate={changeTab}
-                onSelectBeta={setSelectedBetaId}
-              />
-            )}
+          {currentTab === 'home' && (
+            <Home
+              username={user.username}
+              betas={betas}
+              isLoading={isLoadingBetas}
+              onNavigate={changeTab}
+              onSelectBeta={setSelectedBetaId}
+            />
+          )}
 
-            {currentTab === 'explore' && (
-              <Explore
-                walls={walls}
-                betas={betas}
-                onSelectBeta={setSelectedBetaId}
-                onNavigateToBuild={navigateToBuild}
-              />
-            )}
+          {currentTab === 'explore' && (
+            <Explore
+              walls={walls}
+              betas={betas}
+              onSelectBeta={setSelectedBetaId}
+              onNavigateToBuild={navigateToBuild}
+            />
+          )}
 
-            {currentTab === 'build' && (
-              <Build
-                key={buildSession}
-                walls={walls}
-                initialWallId={buildInitialWallId}
-                onPublish={handlePublishBeta}
-              />
-            )}
+          {currentTab === 'build' && (
+            <Build
+              key={buildSession}
+              walls={walls}
+              initialWallId={buildInitialWallId}
+              onPublish={handlePublishBeta}
+            />
+          )}
 
           {currentTab === 'dashboard' && (
             <Dashboard
               stats={stats}
-              betas={betas}
-              username={username}
+              myBetas={myBetas}
+              username={user.username}
+              userId={user.id}
               activityData={activityData}
               onSelectBeta={setSelectedBetaId}
               onNavigateToBuild={() => navigateToBuild(null)}
               onDeleteBeta={handleDeleteBeta}
               onToggleProject={handleToggleProject}
+              onLogout={handleLogout}
             />
           )}
         </motion.div>
@@ -341,10 +316,10 @@ export default function App() {
         <BetaDetail
           beta={selectedBeta}
           walls={walls}
-          username={username}
+          username={user.username}
           onClose={() => setSelectedBetaId(null)}
-          onDelete={selectedBeta.author === username ? handleDeleteBeta : undefined}
-          onToggleProject={handleToggleProject}
+          onDelete={selectedBeta.authorId === user.id ? handleDeleteBeta : undefined}
+          onToggleProject={selectedBeta.authorId === user.id ? handleToggleProject : undefined}
           onAddComment={handleAddComment}
           onToggleRecommend={handleToggleRecommend}
         />

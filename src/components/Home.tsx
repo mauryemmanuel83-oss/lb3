@@ -6,6 +6,7 @@ import { BetaCard } from './BetaCard';
 interface HomeProps {
   username: string;
   betas: Beta[];
+  isLoading?: boolean;
   onNavigate: (tab: Tab) => void;
   onSelectBeta: (betaId: string) => void;
 }
@@ -14,7 +15,7 @@ interface HomeProps {
  * Pantalla principal: deja claro qué hace la app y ofrece
  * accesos grandes y táctiles a las 4 áreas clave.
  */
-export const Home: React.FC<HomeProps> = ({ username, betas, onNavigate, onSelectBeta }) => {
+export const Home: React.FC<HomeProps> = ({ username, betas, isLoading = false, onNavigate, onSelectBeta }) => {
   const recentBetas = betas.slice(0, 3);
 
   const quickActions: {
@@ -97,10 +98,22 @@ export const Home: React.FC<HomeProps> = ({ username, betas, onNavigate, onSelec
           </button>
         </div>
 
-        {recentBetas.length === 0 ? (
+        {isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="skeleton h-64 rounded-xl"></div>
+            ))}
+          </div>
+        ) : recentBetas.length === 0 ? (
           <div className="bg-[#18181B] border border-[#3F3F46] rounded-xl p-8 flex flex-col items-center gap-3 text-center">
             <Mascot state="empty" size={80} />
             <p className="text-sm text-on-surface-variant">Aún no hay betas. ¡Documenta la primera!</p>
+            <button
+              onClick={() => onNavigate('build')}
+              className="font-mono text-[11px] text-primary-container hover:underline font-bold"
+            >
+              Crear la primera beta del gym
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

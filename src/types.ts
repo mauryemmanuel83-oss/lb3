@@ -48,13 +48,15 @@ export interface Beta {
   styles: string[];
   holdColor: string;
   notes: string;
-  imageUrl: string; // foto tomada por el usuario (dataURL) o foto seed
+  imageUrl: string; // foto tomada por el usuario (dataURL)
   markers: Marker[];
   strokes: Stroke[];
   texts: TextLabel[];
-  createdAt: string;
+  createdAt: string; // texto relativo: "Hace 2 días"
+  createdAtISO: string; // timestamp real para cálculos
   wallId: string;
-  author: string;
+  author: string; // username del autor
+  authorId: string; // uuid del autor en Supabase
   activeProject?: boolean;
   comments: Comment[];
   recommendations: number;
@@ -70,14 +72,13 @@ export interface Wall {
   imageUrl: string; // foto real del muro (solo para identificarlo)
 }
 
+// Stats calculadas desde datos reales (nada inventado)
 export interface ClimberStats {
   globalBetaScore: number;
-  sendsThisWeek: number;
+  betasPublished: number;
   activeProjects: number;
-  flashesCount: number;
+  recsReceived: number;
   level: number;
-  title: string;
-  sector: string;
 }
 
 export interface ActivityMatrixDay {
