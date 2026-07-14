@@ -1,37 +1,40 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Beta, ClimberStats, ActivityMatrixDay } from '../types';
 import { BOULDER_GRADES, SPORT_GRADES } from '../data';
+import { computeDisciplineStats, AscentWithBeta } from '../lib/ascents';
 import { Mascot } from './Mascot';
 import { fetchRanking, RankingEntry } from '../api';
 
 interface DashboardProps {
   stats: ClimberStats;
   myBetas: Beta[];
+  myAscents: AscentWithBeta[];
   username: string;
   userId: string;
   activityData: ActivityMatrixDay[];
   onSelectBeta: (betaId: string) => void;
   onNavigateToBuild: () => void;
   onDeleteBeta?: (betaId: string) => void;
-  onToggleProject?: (betaId: string) => void;
   onLogout: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
   stats,
   myBetas,
+  myAscents,
   username,
   userId,
   activityData,
   onSelectBeta,
   onNavigateToBuild,
   onDeleteBeta,
-  onToggleProject,
   onLogout
 }) => {
-  const [filterMode, setFilterMode] = useState<'all' | 'projects' | 'sends'>('all');
   const [ranking, setRanking] = useState<RankingEntry[] | null>(null);
   const [rankingError, setRankingError] = useState(false);
+
+  const boulderStats = useMemo(() => computeDisciplineStats(myAscents, 'boulder'), [myAscents]);
+  const sportStats = useMemo(() => computeDisciplineStats(myAscents, 'deportiva'), [myAscents]);
 
   // Ranking del gym en vivo
   useEffect(() => {
@@ -62,11 +65,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return withCount.length > 0 ? withCount[withCount.length - 1] : null;
   }, [gradeDistribution]);
 
-  const filteredBetas = useMemo(() => {
-    if (filterMode === 'projects') return myBetas.filter((b) => b.activeProject);
-    if (filterMode === 'sends') return myBetas.filter((b) => !b.activeProject);
-    return myBetas;
-  }, [myBetas, filterMode]);
+  const filteredBetas = myBetas;
 
   const matrixWeeks = useMemo(() => {
     const weeks: ActivityMatrixDay[][] = [];
@@ -180,7 +179,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <span className="font-mono text-xs text-on-surface-variant uppercase">Proyectos</span>
             </div>
             <div className="flex items-baseline gap-2 relative z-10">
-              <span className="font-display font-black text-2xl md:text-3xl text-primary-container">{stats.activeProjects}</span>
+              <span className="font-display font-black text-2xl md:text-3xl text-primary-container">
+                {boulderStats.projects + sportStats.projects}
+              </span>
               <span className="font-mono text-[10px] text-on-surface-variant">activos</span>
             </div>
           </div>
@@ -199,6 +200,48 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
         </div>
+
+        {/* ─── ASCENSOS POR DISCIPLINA ─── */}
+        {(boulderStats.hasAny || sportStats.hasAny) ? (
+          <>
+            {boulderStats.hasAny && (
+              <div className="md:col-span-6 bg-[#18181B] border border-[#3F3F46] rounded-xl p-5" id="stats-boulder">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-lg">🧗</span>
+                  <h3 className="font-display font-bold text-sm text-white uppercase tracking-wider">Boulder</h3>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  <StatCell label="Máx V" value={boulderStats.maxGrade || '—'} highlight />
+                  <StatCell label="Completadas" value={boulderStats.sends} />
+                  <StatCell label="Flash" value={boulderStats.flash} />
+                  <StatCell label="Proyectos" value={boulderStats.projects} />
+                </div>
+              </div>
+            )}
+            {sportStats.hasAny && (
+              <div className="md:col-span-6 bg-[#18181B] border border-[#3F3F46] rounded-xl p-5" id="stats-deportiva">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-lg">🪢</span>
+                  <h3 className="font-display font-bold text-sm text-white uppercase tracking-wider">Deportiva</h3>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  <StatCell label="Máx grado" value={sportStats.maxGrade || '—'} highlight />
+                  <StatCell label="Redpoints" value={sportStats.redpoints} />
+                  <StatCell label="Lead" value={sportStats.lead} />
+                  <StatCell label="Top Rope" value={sportStats.topRope} />
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="md:col-span-12 bg-[#18181B] border border-[#3F3F46] rounded-xl p-5 flex items-center gap-3">
+            <span className="material-symbols-outlined text-primary-container text-[22px]">sports_score</span>
+            <p className="font-sans text-xs text-on-surface-variant leading-relaxed">
+              Registra tus ascensos desde cada beta (Flash, Redpoint, Proyecto…) y aquí verás tus máximos y
+              conteos por disciplina.
+            </p>
+          </div>
+        )}
 
         {/* ─── RANKING DEL GYM ─── */}
         <div className="md:col-span-12 lg:col-span-6 bg-[#18181B] border border-[#3F3F46] rounded-xl p-6" id="ranking-card">
@@ -363,49 +406,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* TUS BETAS */}
       <div className="mt-4">
         <header className="flex items-center justify-between pb-3 border-b border-[#3F3F46] flex-wrap gap-2">
-          <h3 className="font-display font-black text-xl text-white uppercase tracking-tight">Tus Betas</h3>
-          <div className="flex items-center gap-2">
-            <div className="flex bg-surface-container-high border border-outline-variant p-0.5 rounded text-[10px] font-mono">
-              <button
-                onClick={() => setFilterMode('all')}
-                className={`px-2.5 py-1 rounded transition-colors ${filterMode === 'all' ? 'bg-primary-container text-on-primary font-bold' : 'text-on-surface-variant hover:text-white'}`}
-                id="btn-filter-betas-all"
-              >
-                Todas
-              </button>
-              <button
-                onClick={() => setFilterMode('projects')}
-                className={`px-2.5 py-1 rounded transition-colors ${filterMode === 'projects' ? 'bg-primary-container text-on-primary font-bold' : 'text-on-surface-variant hover:text-white'}`}
-                id="btn-filter-betas-projects"
-              >
-                Proyectos ({myBetas.filter((b) => b.activeProject).length})
-              </button>
-              <button
-                onClick={() => setFilterMode('sends')}
-                className={`px-2.5 py-1 rounded transition-colors ${filterMode === 'sends' ? 'bg-primary-container text-on-primary font-bold' : 'text-on-surface-variant hover:text-white'}`}
-                id="btn-filter-betas-sends"
-              >
-                Sends
-              </button>
-            </div>
-            <button
-              onClick={onNavigateToBuild}
-              className="font-mono text-xs text-primary-container bg-primary-container/10 border border-primary-container/30 px-3 py-1.5 rounded flex items-center gap-1 hover:bg-primary-container/20 cursor-pointer active:scale-95 transition-all"
-              id="btn-dashboard-crear-beta"
-            >
-              <span className="material-symbols-outlined text-[14px]">add</span>
-              <span>Crear</span>
-            </button>
-          </div>
+          <h3 className="font-display font-black text-xl text-white uppercase tracking-tight">
+            Tus Betas ({myBetas.length})
+          </h3>
+          <button
+            onClick={onNavigateToBuild}
+            className="font-mono text-xs text-primary-container bg-primary-container/10 border border-primary-container/30 px-3 py-1.5 rounded flex items-center gap-1 hover:bg-primary-container/20 cursor-pointer active:scale-95 transition-all"
+            id="btn-dashboard-crear-beta"
+          >
+            <span className="material-symbols-outlined text-[14px]">add</span>
+            <span>Crear</span>
+          </button>
         </header>
 
         <div className="flex flex-col gap-3 mt-4" id="dashboard-betas-list">
           {filteredBetas.length === 0 ? (
             <div className="bg-[#18181B] border border-[#3F3F46] p-8 text-center rounded-lg flex flex-col items-center gap-3">
               <Mascot state="empty" size={88} />
-              <p className="text-sm text-on-surface-variant">
-                {myBetas.length === 0 ? 'Aún no publicas ninguna beta.' : 'No hay betas en este filtro.'}
-              </p>
+              <p className="text-sm text-on-surface-variant">Aún no publicas ninguna beta.</p>
               <button onClick={onNavigateToBuild} className="text-xs text-primary-container hover:underline font-mono font-bold">
                 ¡Registra tu primera beta ahora!
               </button>
@@ -442,9 +460,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         <span className="material-symbols-outlined text-[11px]">thumb_up</span>
                         {beta.recommendations}
                       </span>
-                      {beta.activeProject && (
-                        <span className="font-mono text-[9px] text-blue-400 bg-blue-950/45 border border-blue-800 px-1.5 py-0.5 rounded font-bold">
-                          PROYECTO
+                      {beta.status !== 'active' && (
+                        <span
+                          className={`font-mono text-[9px] px-1.5 py-0.5 rounded font-bold uppercase border ${
+                            beta.status === 'removed'
+                              ? 'text-red-300 border-red-700/50 bg-red-950/40'
+                              : 'text-amber-300 border-amber-600/50 bg-amber-950/40'
+                          }`}
+                        >
+                          {beta.status === 'removed' ? 'Removida' : 'Cambió'}
                         </span>
                       )}
                     </div>
@@ -452,20 +476,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
 
                 <div className="flex items-center gap-3">
-                  {onToggleProject && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleProject(beta.id);
-                      }}
-                      className="hidden sm:flex h-8 w-8 items-center justify-center rounded border border-outline-variant hover:border-blue-400 hover:text-blue-300 transition-colors bg-surface"
-                      title={beta.activeProject ? 'Marcar como completado' : 'Marcar como proyecto'}
-                    >
-                      <span className="material-symbols-outlined text-[16px]">
-                        {beta.activeProject ? 'emoji_events' : 'construction'}
-                      </span>
-                    </button>
-                  )}
                   {onDeleteBeta && (
                     <button
                       onClick={(e) => {
@@ -490,3 +500,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
     </div>
   );
 };
+
+// Celda de estadística compacta para los paneles por disciplina
+const StatCell: React.FC<{ label: string; value: string | number; highlight?: boolean }> = ({
+  label,
+  value,
+  highlight = false
+}) => (
+  <div className="bg-surface-container/50 border border-outline-variant/40 rounded-lg p-2.5 flex flex-col items-center justify-center text-center gap-0.5">
+    <span className={`font-display font-black text-lg md:text-xl ${highlight ? 'text-primary-container' : 'text-white'}`}>
+      {value}
+    </span>
+    <span className="font-mono text-[8px] text-on-surface-variant uppercase tracking-wide leading-tight">{label}</span>
+  </div>
+);

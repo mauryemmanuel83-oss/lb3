@@ -13,6 +13,7 @@ import { Build } from './components/Build';
 import { Dashboard } from './components/Dashboard';
 import { BetaDetail } from './components/BetaDetail';
 import { Beta, Wall, ClimberStats, Tab, ReportReason } from './types';
+import { AscentWithBeta } from './lib/ascents';
 import { INITIAL_WALLS, buildActivityMatrix } from './data';
 import { isSupabaseConfigured } from './lib/supabase';
 import * as api from './api';
@@ -177,18 +178,6 @@ export default function App() {
     }
   };
 
-  const handleToggleProject = async (betaId: string) => {
-    const beta = betas.find((b) => b.id === betaId);
-    if (!beta) return;
-    const next = !beta.activeProject;
-    setBetas((prev) => prev.map((b) => (b.id === betaId ? { ...b, activeProject: next } : b)));
-    try {
-      await api.setBetaProject(betaId, next);
-    } catch {
-      if (user) await refreshBetas(user.id);
-    }
-  };
-
   const handleAddComment = async (betaId: string, text: string) => {
     if (!user) return;
     // Optimista: aparece al instante
@@ -262,8 +251,36 @@ export default function App() {
     }
   };
 
+  // ─── Ascensos ───
+  const handleLogAscent = async (input: api.NewAscentInput) => {
+    if (!user) return;
+    try {
+      await api.logAscent(user.id, input);
+      await refreshBetas(user.id);
+    } catch (err) {
+      await refreshBetas(user.id);
+      alert(err instanceof Error ? err.message : 'No se pudo registrar el ascenso.');
+    }
+  };
+
+  const handleDeleteAscent = async (ascentId: string) => {
+    if (!user) return;
+    try {
+      await api.deleteAscent(ascentId);
+      await refreshBetas(user.id);
+    } catch {
+      await refreshBetas(user.id);
+    }
+  };
+
   // ─── Stats reales calculadas de los datos ───
   const myBetas = useMemo(() => (user ? betas.filter((b) => b.authorId === user.id) : []), [betas, user]);
+
+  // Todos mis ascensos (sobre cualquier beta), con su betaId, para las stats
+  const myAscents: AscentWithBeta[] = useMemo(
+    () => betas.flatMap((b) => b.myAscents.map((a) => ({ ...a, betaId: b.id }))),
+    [betas]
+  );
 
   const stats: ClimberStats = useMemo(() => {
     const recsReceived = myBetas.reduce((acc, b) => acc + b.recommendations, 0);
@@ -271,7 +288,7 @@ export default function App() {
     return {
       globalBetaScore: score,
       betasPublished: myBetas.length,
-      activeProjects: myBetas.filter((b) => b.activeProject).length,
+      activeProjects: 0, // ahora se calcula por disciplina desde ascents
       recsReceived,
       level: Math.floor(score / 500) + 1
     };
@@ -351,17 +368,24 @@ export default function App() {
             <Dashboard
               stats={stats}
               myBetas={myBetas}
+              myAscents={myAscents}
               username={user.username}
               userId={user.id}
               activityData={activityData}
               onSelectBeta={setSelectedBetaId}
               onNavigateToBuild={() => navigateToBuild(null)}
               onDeleteBeta={handleDeleteBeta}
-              onToggleProject={handleToggleProject}
               onLogout={handleLogout}
             />
           )}
         </motion.div>
+
+        {/* Créditos discretos */}
+        <footer className="mt-10 pt-6 border-t border-outline-variant/30 flex justify-center">
+          <span className="font-mono text-[9px] text-on-surface-variant/40 uppercase tracking-[0.2em] hover:text-on-surface-variant/70 transition-colors">
+            Powered by Eugenia
+          </span>
+        </footer>
       </main>
 
       {selectedBeta && (
@@ -372,13 +396,14 @@ export default function App() {
           hasReplacement={!!selectedBeta.replacedById && betas.some((b) => b.id === selectedBeta.replacedById)}
           onClose={() => setSelectedBetaId(null)}
           onDelete={selectedBeta.authorId === user.id ? handleDeleteBeta : undefined}
-          onToggleProject={selectedBeta.authorId === user.id ? handleToggleProject : undefined}
           onAddComment={handleAddComment}
           onToggleRecommend={handleToggleRecommend}
           onReport={handleReport}
           onUnreport={handleUnreport}
           onOpenReplacement={(id) => setSelectedBetaId(id)}
           onCreateUpdatedVersion={handleCreateUpdatedVersion}
+          onLogAscent={handleLogAscent}
+          onDeleteAscent={handleDeleteAscent}
         />
       )}
     </div>

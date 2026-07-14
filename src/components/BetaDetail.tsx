@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Beta, Wall, ReportReason } from '../types';
+import { Beta, Wall, ReportReason, AscentResult, AscentType } from '../types';
 import { BetaOverlay } from './BetaOverlay';
 import { STATUS_META } from '../lib/betaStatus';
-import { REPORT_THRESHOLD } from '../api';
+import { resultsForDiscipline, ASCENT_TYPES, resultLabel, resultIcon, typeLabel } from '../lib/ascents';
+import { REPORT_THRESHOLD, NewAscentInput } from '../api';
 
 interface BetaDetailProps {
   beta: Beta;
@@ -11,13 +12,14 @@ interface BetaDetailProps {
   hasReplacement: boolean; // ¿existe la beta que la reemplaza?
   onClose: () => void;
   onDelete?: (betaId: string) => void;
-  onToggleProject?: (betaId: string) => void;
   onAddComment: (betaId: string, text: string) => void;
   onToggleRecommend: (betaId: string) => void;
   onReport: (betaId: string, reason: ReportReason) => void;
   onUnreport: (betaId: string) => void;
   onOpenReplacement: (betaId: string) => void;
   onCreateUpdatedVersion: (beta: Beta) => void;
+  onLogAscent: (input: NewAscentInput) => void;
+  onDeleteAscent: (ascentId: string) => void;
 }
 
 export const BetaDetail: React.FC<BetaDetailProps> = ({
@@ -27,16 +29,24 @@ export const BetaDetail: React.FC<BetaDetailProps> = ({
   hasReplacement,
   onClose,
   onDelete,
-  onToggleProject,
   onAddComment,
   onToggleRecommend,
   onReport,
   onUnreport,
   onOpenReplacement,
-  onCreateUpdatedVersion
+  onCreateUpdatedVersion,
+  onLogAscent,
+  onDeleteAscent
 }) => {
   const wall = walls.find((w) => w.id === beta.wallId);
+  const discipline = wall?.type || 'boulder';
   const [commentText, setCommentText] = useState('');
+
+  // Estado del formulario de ascenso
+  const [ascentResult, setAscentResult] = useState<AscentResult | null>(null);
+  const [ascentType, setAscentType] = useState<AscentType>('lead');
+  const [ascentNotes, setAscentNotes] = useState('');
+  const [showAscentForm, setShowAscentForm] = useState(false);
 
   const status = STATUS_META[beta.status];
   const isStale = beta.status !== 'active';
@@ -48,6 +58,21 @@ export const BetaDetail: React.FC<BetaDetailProps> = ({
     if (!clean) return;
     onAddComment(beta.id, clean);
     setCommentText('');
+  };
+
+  const submitAscent = () => {
+    if (!ascentResult) return;
+    onLogAscent({
+      betaId: beta.id,
+      discipline,
+      result: ascentResult,
+      ascentType: discipline === 'deportiva' ? ascentType : null,
+      grade: beta.grade,
+      notes: ascentNotes.trim()
+    });
+    setAscentResult(null);
+    setAscentNotes('');
+    setShowAscentForm(false);
   };
 
   return (
@@ -195,6 +220,143 @@ export const BetaDetail: React.FC<BetaDetailProps> = ({
                 </span>
               </button>
 
+              {/* ─── Registrar mi ascenso (adaptado a la disciplina) ─── */}
+              {beta.status !== 'removed' && (
+                <div className="space-y-2.5 bg-surface-container/50 border border-outline-variant/60 rounded-xl p-3.5">
+                  <h4 className="font-mono text-[10px] text-on-surface-variant uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[14px] text-primary-container">sports_score</span>
+                    Tu ascenso · {discipline === 'boulder' ? 'Boulder' : 'Deportiva'}
+                  </h4>
+
+                  {/* Mis registros previos en esta beta */}
+                  {beta.myAscents.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                      {beta.myAscents.map((a) => (
+                        <div
+                          key={a.id}
+                          className="flex items-center gap-2 bg-surface border border-outline-variant/50 rounded-lg px-2.5 py-1.5"
+                        >
+                          <span className="material-symbols-outlined text-[16px] text-primary-container">
+                            {resultIcon(a.result)}
+                          </span>
+                          <span className="font-mono text-[11px] text-white font-bold">{resultLabel(a.result)}</span>
+                          {a.ascentType && (
+                            <span className="font-mono text-[9px] text-sky-300 border border-sky-700/50 rounded px-1.5 py-0.5 uppercase">
+                              {typeLabel(a.ascentType)}
+                            </span>
+                          )}
+                          <span className="font-mono text-[9px] text-outline">{a.createdAt}</span>
+                          <button
+                            onClick={() => onDeleteAscent(a.id)}
+                            className="ml-auto text-on-surface-variant hover:text-red-400 shrink-0"
+                            title="Borrar registro"
+                          >
+                            <span className="material-symbols-outlined text-[15px]">close</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {!showAscentForm ? (
+                    <button
+                      onClick={() => setShowAscentForm(true)}
+                      className="w-full h-11 bg-primary-container text-on-primary font-display font-bold text-xs uppercase tracking-wider rounded-lg flex items-center justify-center gap-2 btn-punch shadow-[3px_3px_0_0_rgba(0,0,0,1)]"
+                      id="btn-open-ascent-form"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">add</span>
+                      {beta.myAscents.length > 0 ? 'Registrar otro intento' : 'Registrar ascenso'}
+                    </button>
+                  ) : (
+                    <div className="space-y-2.5 pop-in">
+                      {/* Tipo de ascenso: solo deportiva */}
+                      {discipline === 'deportiva' && (
+                        <div className="space-y-1.5">
+                          <span className="font-mono text-[9px] text-on-surface-variant uppercase tracking-wider">
+                            Tipo de ascenso
+                          </span>
+                          <div className="grid grid-cols-2 gap-2">
+                            {ASCENT_TYPES.map((t) => (
+                              <button
+                                key={t.key}
+                                onClick={() => setAscentType(t.key)}
+                                className={`h-10 rounded-lg font-mono text-[11px] flex items-center justify-center gap-1.5 btn-punch border ${
+                                  ascentType === t.key
+                                    ? 'bg-primary-container text-on-primary border-primary-container font-bold'
+                                    : 'bg-surface-container border-outline-variant text-on-surface'
+                                }`}
+                                id={`btn-ascent-type-${t.key}`}
+                              >
+                                <span className="material-symbols-outlined text-[16px]">{t.icon}</span>
+                                {t.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Resultado: opciones según disciplina, nunca mezcladas */}
+                      <div className="space-y-1.5">
+                        <span className="font-mono text-[9px] text-on-surface-variant uppercase tracking-wider">
+                          Resultado
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                          {resultsForDiscipline(discipline).map((r) => (
+                            <button
+                              key={r.key}
+                              onClick={() => setAscentResult(r.key)}
+                              className={`h-10 rounded-lg font-mono text-[11px] flex items-center justify-center gap-1.5 btn-punch border ${
+                                ascentResult === r.key
+                                  ? 'bg-primary-container text-on-primary border-primary-container font-bold'
+                                  : 'bg-surface-container border-outline-variant text-on-surface'
+                              }`}
+                              id={`btn-ascent-result-${r.key}`}
+                            >
+                              <span className="material-symbols-outlined text-[16px]">{r.icon}</span>
+                              {r.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <input
+                        type="text"
+                        value={ascentNotes}
+                        onChange={(e) => setAscentNotes(e.target.value)}
+                        placeholder="Observaciones (opcional)"
+                        maxLength={200}
+                        className="w-full bg-background border border-outline-variant rounded-lg px-3 h-10 text-xs text-white focus:border-primary-container focus:outline-none placeholder:text-outline-variant/60"
+                      />
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            setShowAscentForm(false);
+                            setAscentResult(null);
+                          }}
+                          className="h-10 px-3 rounded-lg border border-outline-variant bg-surface-container text-on-surface-variant font-mono text-[11px] btn-punch"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={submitAscent}
+                          disabled={!ascentResult}
+                          className={`flex-1 h-10 rounded-lg font-display font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 btn-punch ${
+                            ascentResult
+                              ? 'bg-primary-container text-on-primary shadow-[2px_2px_0_0_rgba(0,0,0,1)]'
+                              : 'bg-surface-container text-outline-variant cursor-not-allowed'
+                          }`}
+                          id="btn-submit-ascent"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">check</span>
+                          Guardar ascenso
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Estilos */}
               {beta.styles.length > 0 && (
                 <div className="flex flex-wrap gap-2">
@@ -341,23 +503,6 @@ export const BetaDetail: React.FC<BetaDetailProps> = ({
 
             {/* Acciones del dueño */}
             <div className="pt-5 border-t border-outline-variant/40 flex flex-col gap-2 mt-6">
-              {onToggleProject && (
-                <button
-                  onClick={() => onToggleProject(beta.id)}
-                  className={`w-full h-11 rounded-lg font-display font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-2 cursor-pointer btn-punch ${
-                    beta.activeProject
-                      ? 'bg-primary-container text-on-primary'
-                      : 'bg-surface-container border border-outline-variant text-on-surface'
-                  }`}
-                  id="btn-detail-toggle-project"
-                >
-                  <span className="material-symbols-outlined text-[18px]">
-                    {beta.activeProject ? 'emoji_events' : 'construction'}
-                  </span>
-                  {beta.activeProject ? 'Marcar como completado' : 'Marcar como proyecto'}
-                </button>
-              )}
-
               <div className="flex gap-2">
                 {onDelete && (
                   <button

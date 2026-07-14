@@ -68,11 +68,6 @@ export const BetaCard: React.FC<BetaCardProps> = ({ beta, onSelect, index = 0 })
           <span className="font-mono text-[8px] text-on-surface-variant uppercase">presas</span>
         </div>
 
-        {beta.activeProject && !isStale && (
-          <div className="absolute bottom-2.5 left-2.5 bg-blue-950/90 border border-blue-500 rounded px-2 py-0.5 backdrop-blur">
-            <span className="font-mono text-[9px] text-blue-300 font-bold uppercase tracking-wider">Proyecto</span>
-          </div>
-        )}
       </div>
 
       {/* Info */}

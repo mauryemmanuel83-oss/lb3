@@ -47,6 +47,31 @@ export type BetaStatus = 'active' | 'holds_changed' | 'removed';
 // Motivo de un reporte de cambio
 export type ReportReason = 'holds_changed' | 'removed';
 
+// ─── Ascensos ────────────────────────────────────────────────
+export type Discipline = 'boulder' | 'deportiva';
+export type AscentType = 'top_rope' | 'lead'; // solo deportiva
+
+// boulder: flash | onsight | al_ojo | completed | project
+// deportiva: flash | onsight | redpoint | attempt | project
+export type AscentResult =
+  | 'flash'
+  | 'onsight'
+  | 'al_ojo'
+  | 'completed'
+  | 'project'
+  | 'redpoint'
+  | 'attempt';
+
+export interface Ascent {
+  id: string;
+  discipline: Discipline;
+  result: AscentResult;
+  ascentType: AscentType | null;
+  grade: string; // snapshot del grado al registrarse
+  notes: string;
+  createdAt: string;
+}
+
 export interface Beta {
   id: string;
   name: string;
@@ -75,6 +100,8 @@ export interface Beta {
   reportsHolds: number; // reportes de "presas cambiadas"
   reportsRemoved: number; // reportes de "ruta removida"
   myReport: ReportReason | null; // qué reportó el usuario actual (si acaso)
+  // Ascensos del usuario actual sobre esta beta (más recientes primero)
+  myAscents: Ascent[];
 }
 
 export interface Wall {

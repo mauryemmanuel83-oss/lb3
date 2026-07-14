@@ -1,5 +1,17 @@
 import { supabase } from './lib/supabase';
-import { Beta, Comment, Marker, Stroke, TextLabel, BetaStatus, ReportReason } from './types';
+import {
+  Beta,
+  Comment,
+  Marker,
+  Stroke,
+  TextLabel,
+  BetaStatus,
+  ReportReason,
+  Ascent,
+  AscentResult,
+  AscentType,
+  Discipline
+} from './types';
 
 // Umbral de consenso: cuántos usuarios distintos deben reportar el mismo
 // cambio para que la beta cambie de estado sola. Debe coincidir con el
@@ -120,8 +132,39 @@ interface ReportRow {
   reason: ReportReason;
 }
 
-const rowToBeta = (row: BetaRow, currentUserId: string | null, reports: ReportRow[]): Beta => {
+interface AscentRow {
+  id: string;
+  beta_id: string;
+  user_id: string;
+  discipline: Discipline;
+  ascent_type: AscentType | null;
+  result: AscentResult;
+  grade: string;
+  notes: string;
+  created_at: string;
+}
+
+const rowToAscent = (row: AscentRow): Ascent => ({
+  id: row.id,
+  discipline: row.discipline,
+  result: row.result,
+  ascentType: row.ascent_type,
+  grade: row.grade || '',
+  notes: row.notes || '',
+  createdAt: timeAgo(row.created_at)
+});
+
+const rowToBeta = (
+  row: BetaRow,
+  currentUserId: string | null,
+  reports: ReportRow[],
+  myAscentRows: AscentRow[]
+): Beta => {
   const myReports = reports.filter((r) => r.beta_id === row.id);
+  const myAscents = myAscentRows
+    .filter((a) => a.beta_id === row.id)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .map(rowToAscent);
   return {
     id: row.id,
     authorId: row.author_id,
@@ -157,7 +200,8 @@ const rowToBeta = (row: BetaRow, currentUserId: string | null, reports: ReportRo
     replacesId: row.replaces || null,
     reportsHolds: myReports.filter((r) => r.reason === 'holds_changed').length,
     reportsRemoved: myReports.filter((r) => r.reason === 'removed').length,
-    myReport: currentUserId ? myReports.find((r) => r.user_id === currentUserId)?.reason || null : null
+    myReport: currentUserId ? myReports.find((r) => r.user_id === currentUserId)?.reason || null : null,
+    myAscents
   };
 };
 
@@ -181,7 +225,17 @@ export const fetchBetas = async (currentUserId: string | null): Promise<Beta[]> 
     reports = reportRes.data as ReportRow[];
   }
 
-  return (data as unknown as BetaRow[]).map((row) => rowToBeta(row, currentUserId, reports));
+  // Mis ascensos (para estadísticas y para mostrar mi registro en cada beta).
+  // Antes de la migración 003 la tabla no existe → seguimos sin ascensos.
+  let myAscentRows: AscentRow[] = [];
+  if (currentUserId) {
+    const ascentRes = await supabase.from('ascents').select('*').eq('user_id', currentUserId);
+    if (!ascentRes.error && ascentRes.data) {
+      myAscentRows = ascentRes.data as AscentRow[];
+    }
+  }
+
+  return (data as unknown as BetaRow[]).map((row) => rowToBeta(row, currentUserId, reports, myAscentRows));
 };
 
 export interface NewBetaInput {
@@ -236,13 +290,41 @@ export const unreportBeta = async (userId: string, betaId: string): Promise<void
   if (error) throw new Error(error.message);
 };
 
-export const deleteBeta = async (betaId: string): Promise<void> => {
-  const { error } = await supabase.from('betas').delete().eq('id', betaId);
+// ─── Ascensos ────────────────────────────────────────────────
+export interface NewAscentInput {
+  betaId: string;
+  discipline: Discipline;
+  result: AscentResult;
+  ascentType: AscentType | null; // solo deportiva
+  grade: string;
+  notes: string;
+}
+
+export const logAscent = async (userId: string, input: NewAscentInput): Promise<void> => {
+  const { error } = await supabase.from('ascents').insert({
+    beta_id: input.betaId,
+    user_id: userId,
+    discipline: input.discipline,
+    ascent_type: input.ascentType,
+    result: input.result,
+    grade: input.grade,
+    notes: input.notes
+  });
+  if (error) {
+    if (error.message.includes('does not exist') || error.message.includes('schema cache')) {
+      throw new Error('Falta correr la migración 003 en Supabase (SQL Editor).');
+    }
+    throw new Error(error.message);
+  }
+};
+
+export const deleteAscent = async (ascentId: string): Promise<void> => {
+  const { error } = await supabase.from('ascents').delete().eq('id', ascentId);
   if (error) throw new Error(error.message);
 };
 
-export const setBetaProject = async (betaId: string, activeProject: boolean): Promise<void> => {
-  const { error } = await supabase.from('betas').update({ active_project: activeProject }).eq('id', betaId);
+export const deleteBeta = async (betaId: string): Promise<void> => {
+  const { error } = await supabase.from('betas').delete().eq('id', betaId);
   if (error) throw new Error(error.message);
 };
 
