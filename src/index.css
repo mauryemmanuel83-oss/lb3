@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #12131a;
+  --color-surface: #12131a;
+  --color-surface-container-lowest: #0c0e14;
+  --color-surface-container-low: #1a1b22;
+  --color-surface-container: #1e1f26;
+  --color-surface-container-high: #282a31;
+  --color-surface-container-highest: #33343c;
+  --color-surface-bright: #383940;
+  --color-surface-dim: #12131a;
+  
+  --color-primary: #ffecb9;
+  --color-on-primary: #3c2f00;
+  --color-primary-container: #facc15;
+  --color-on-primary-container: #6c5700;
+  
+  --color-secondary: #c6c6c6;
+  --color-on-secondary: #303030;
+  --color-secondary-container: #474747;
+  --color-on-secondary-container: #b5b5b5;
+
+  --color-on-surface: #e2e1eb;
+  --color-on-surface-variant: #d1c6ab;
+  --color-outline: #9a9078;
+  --color-outline-variant: #4d4632;
+  
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Geist", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+/* Striped Caution / Hazard Pattern */
+.bg-caution-tape, .bg-hazard-stripes {
+  background-image: repeating-linear-gradient(
+    45deg,
+    #facc15,
+    #facc15 10px,
+    #12131a 10px,
+    #12131a 20px
+  );
+}
+
+/* Subtle Tech Grid Pattern for Climbing Gym Backdrop */
+.bg-tech-grid {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, #1e1f26 1px, transparent 1px),
+    linear-gradient(to bottom, #1e1f26 1px, transparent 1px);
+}
+
+/* Hide scrollbars but preserve scrolling */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Material Symbols Outlined custom styling rules */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom transitions and scroll snap */
+.snap-x {
+  scroll-snap-type: x mandatory;
+}
+.snap-start {
+  scroll-snap-align: start;
+}

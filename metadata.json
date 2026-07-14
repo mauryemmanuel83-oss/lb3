@@ -1,0 +1,6 @@
+{
+  "name": "La Beta",
+  "description": "Una aplicación interactiva para registrar, diseñar y consultar rutas de escalada en bloque (betas), ver estadísticas y explorar sectores.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
