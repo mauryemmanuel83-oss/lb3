@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { Beta, ClimberStats, ActivityMatrixDay } from '../types';
+import { Mascot } from './Mascot';
 
 interface DashboardProps {
   stats: ClimberStats;
   betas: Beta[];
+  username: string;
   activityData: ActivityMatrixDay[];
   onSelectBeta: (betaId: string) => void;
   onNavigateToBuild: () => void;
@@ -14,6 +16,7 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({
   stats,
   betas,
+  username,
   activityData,
   onSelectBeta,
   onNavigateToBuild,
@@ -99,14 +102,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
     <div className="w-full flex flex-col gap-6">
       
       {/* Dashboard Header */}
-      <div className="flex justify-between items-end">
+      <div className="flex justify-between items-end card-in">
         <div>
           <h2 className="font-display font-black text-3xl md:text-4xl text-primary-container tracking-tight" id="dashboard-title">
-            Mi Dashboard
+            @{username}
           </h2>
           <p className="font-mono text-xs text-on-surface-variant mt-2 uppercase tracking-wider">
             Lvl {stats.level} {stats.title} // {stats.sector}
           </p>
+        </div>
+        <div className="hidden sm:block bg-surface-container border border-outline-variant rounded-xl p-1.5">
+          <Mascot state="idle" size={56} />
         </div>
       </div>
 
@@ -366,12 +372,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Scrollable Betas List */}
         <div className="flex flex-col gap-3 mt-4" id="dashboard-betas-list">
           {filteredBetas.length === 0 ? (
-            <div className="bg-[#18181B] border border-[#3F3F46] p-8 text-center rounded-lg">
-              <span className="material-symbols-outlined text-outline-variant text-[48px] mb-2">terrain</span>
+            <div className="bg-[#18181B] border border-[#3F3F46] p-8 text-center rounded-lg flex flex-col items-center gap-3">
+              <Mascot state="empty" size={88} />
               <p className="text-sm text-on-surface-variant">No tienes betas guardadas en este filtro.</p>
-              <button 
+              <button
                 onClick={onNavigateToBuild}
-                className="mt-3 text-xs text-primary-container hover:underline font-mono"
+                className="text-xs text-primary-container hover:underline font-mono font-bold"
               >
                 ¡Registra tu primera beta ahora!
               </button>
@@ -401,13 +407,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     
                     {/* Technical tags */}
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className="font-mono text-[9px] text-on-surface-variant bg-surface px-1.5 py-0.5 border border-outline-variant">
-                        {beta.styles.join(' // ')}
-                      </span>
-                      <span className="text-[#3F3F46] text-xs">|</span>
+                      {beta.styles.length > 0 && (
+                        <>
+                          <span className="font-mono text-[9px] text-on-surface-variant bg-surface px-1.5 py-0.5 border border-outline-variant">
+                            {beta.styles.slice(0, 2).join(' // ')}
+                          </span>
+                          <span className="text-[#3F3F46] text-xs">|</span>
+                        </>
+                      )}
                       <span className="font-mono text-[9px] text-on-surface-variant flex items-center gap-0.5">
                         <span className="material-symbols-outlined text-[11px]">calendar_today</span>
                         {beta.createdAt}
+                      </span>
+                      <span className="font-mono text-[9px] text-on-surface-variant flex items-center gap-0.5">
+                        <span className="material-symbols-outlined text-[11px]">chat_bubble</span>
+                        {beta.comments.length}
+                      </span>
+                      <span className="font-mono text-[9px] text-on-surface-variant flex items-center gap-0.5">
+                        <span className="material-symbols-outlined text-[11px]">thumb_up</span>
+                        {beta.recommendations}
                       </span>
                       {beta.activeProject && (
                         <>

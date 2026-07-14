@@ -82,3 +82,241 @@
 .snap-start {
   scroll-snap-align: start;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   MASCOTA PIXEL-ART — animaciones por estado (sin GIFs)
+   ═══════════════════════════════════════════════════════════ */
+.mascot svg {
+  display: block;
+  overflow: visible;
+}
+.mascot__arm-l, .mascot__arm-r,
+.mascot__leg-l, .mascot__leg-r,
+.mascot__body, .mascot__eyes {
+  transform-box: fill-box;
+  transform-origin: center top;
+}
+
+/* — idle: respiración + balanceo sutil — */
+.mascot--idle .mascot__body {
+  animation: mascot-bob 2.4s ease-in-out infinite;
+}
+.mascot--idle .mascot__arm-l {
+  animation: mascot-arm-reach 4.8s ease-in-out infinite;
+}
+@keyframes mascot-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(2px); }
+}
+@keyframes mascot-arm-reach {
+  0%, 70%, 100% { transform: translateY(0); }
+  80%, 90% { transform: translateY(-3px); }
+}
+
+/* — loading: escala lento, presas bajan — */
+.mascot--loading .mascot__holds {
+  animation: mascot-holds-scroll 3.2s linear infinite;
+}
+.mascot--loading .mascot__arm-l {
+  animation: mascot-climb-arm 1.6s ease-in-out infinite;
+}
+.mascot--loading .mascot__arm-r {
+  animation: mascot-climb-arm 1.6s ease-in-out infinite reverse;
+}
+.mascot--loading .mascot__leg-l {
+  animation: mascot-climb-leg 1.6s ease-in-out infinite reverse;
+}
+.mascot--loading .mascot__leg-r {
+  animation: mascot-climb-leg 1.6s ease-in-out infinite;
+}
+.mascot--loading .mascot__body {
+  animation: mascot-bob 1.6s ease-in-out infinite;
+}
+
+/* — publishing: sube con más ritmo — */
+.mascot--publishing .mascot__holds {
+  animation: mascot-holds-scroll 1.4s linear infinite;
+}
+.mascot--publishing .mascot__arm-l {
+  animation: mascot-climb-arm 0.7s ease-in-out infinite;
+}
+.mascot--publishing .mascot__arm-r {
+  animation: mascot-climb-arm 0.7s ease-in-out infinite reverse;
+}
+.mascot--publishing .mascot__leg-l {
+  animation: mascot-climb-leg 0.7s ease-in-out infinite reverse;
+}
+.mascot--publishing .mascot__leg-r {
+  animation: mascot-climb-leg 0.7s ease-in-out infinite;
+}
+.mascot--publishing .mascot__body {
+  animation: mascot-bob 0.7s ease-in-out infinite;
+}
+
+@keyframes mascot-holds-scroll {
+  from { transform: translateY(-64px); }
+  to { transform: translateY(0); }
+}
+@keyframes mascot-climb-arm {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+@keyframes mascot-climb-leg {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+/* — success: celebra con brazos arriba y salta — */
+.mascot--success .mascot__body {
+  animation: mascot-jump 0.8s ease-in-out infinite;
+}
+.mascot--success .mascot__arm-l {
+  transform: translateY(-7px);
+  animation: mascot-wave 0.8s ease-in-out infinite;
+}
+.mascot--success .mascot__arm-r {
+  transform: translateY(-7px);
+  animation: mascot-wave 0.8s ease-in-out infinite reverse;
+}
+@keyframes mascot-jump {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-6px); }
+  60% { transform: translateY(-6px); }
+}
+@keyframes mascot-wave {
+  0%, 100% { transform: translateY(-7px) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(12deg); }
+}
+.mascot__confetti rect {
+  animation: confetti-fall 1.2s linear infinite;
+}
+.mascot__confetti .confetti-2 { animation-delay: 0.25s; }
+.mascot__confetti .confetti-3 { animation-delay: 0.5s; }
+.mascot__confetti .confetti-4 { animation-delay: 0.75s; }
+.mascot__confetti .confetti-5 { animation-delay: 1s; }
+@keyframes confetti-fall {
+  0% { transform: translateY(-6px); opacity: 1; }
+  100% { transform: translateY(40px) rotate(180deg); opacity: 0; }
+}
+
+/* — error: se resbala, cuelga de un brazo y patalea — */
+.mascot--error .mascot__body {
+  transform-origin: 46px 18px; /* cuelga del brazo derecho */
+  animation: mascot-slip 1.8s ease-in-out infinite;
+}
+.mascot--error .mascot__arm-r {
+  transform: translateY(-6px);
+}
+.mascot--error .mascot__leg-l {
+  animation: mascot-dangle 0.9s ease-in-out infinite;
+}
+.mascot--error .mascot__leg-r {
+  animation: mascot-dangle 0.9s ease-in-out infinite reverse;
+}
+.mascot--error .mascot__sweat rect {
+  animation: sweat-drop 1.8s ease-in infinite;
+}
+@keyframes mascot-slip {
+  0%, 100% { transform: rotate(-8deg) translateY(2px); }
+  50% { transform: rotate(-13deg) translateY(3px); }
+}
+@keyframes mascot-dangle {
+  0%, 100% { transform: rotate(-8deg); }
+  50% { transform: rotate(10deg); }
+}
+@keyframes sweat-drop {
+  0%, 60% { transform: translateY(0); opacity: 0; }
+  70% { opacity: 1; }
+  100% { transform: translateY(14px); opacity: 0; }
+}
+
+/* — empty: busca ruta, mira a los lados — */
+.mascot--empty .mascot__body {
+  animation: mascot-look 3.6s ease-in-out infinite;
+}
+.mascot--empty .mascot__eyes {
+  animation: mascot-eyes-scan 3.6s ease-in-out infinite;
+}
+.mascot--empty .mascot__question {
+  animation: question-pop 3.6s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes mascot-look {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-6deg) translateX(-2px); }
+  65% { transform: rotate(6deg) translateX(2px); }
+}
+@keyframes mascot-eyes-scan {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  65% { transform: translateX(2px); }
+}
+@keyframes question-pop {
+  0%, 55%, 100% { opacity: 0; transform: scale(0.6); }
+  65%, 90% { opacity: 1; transform: scale(1); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MICROINTERACCIONES Y UTILIDADES DE ANIMACIÓN GLOBALES
+   ═══════════════════════════════════════════════════════════ */
+
+/* Skeleton loading shimmer */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #1e1f26;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(250, 204, 21, 0.06), transparent);
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
+/* Botón industrial "vivo": presión física con sombra dura */
+.btn-punch {
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.15s ease;
+  will-change: transform;
+}
+.btn-punch:hover {
+  transform: translate(-1px, -1px);
+}
+.btn-punch:active {
+  transform: translate(2px, 2px) scale(0.98);
+  box-shadow: none !important;
+}
+
+/* Entrada de tarjetas */
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.card-in {
+  animation: card-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Pop para badges y toasts */
+@keyframes pop-in {
+  0% { opacity: 0; transform: scale(0.7); }
+  70% { transform: scale(1.06); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.pop-in {
+  animation: pop-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Respeto por reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .mascot * {
+    animation-duration: 6s !important;
+  }
+  .card-in, .pop-in {
+    animation: none;
+  }
+}

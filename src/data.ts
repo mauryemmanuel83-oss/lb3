@@ -1,85 +1,153 @@
-import { Sector, Beta, ClimberStats, ActivityMatrixDay } from './types';
+import { Wall, Beta, ClimberStats, ActivityMatrixDay, WallType } from './types';
 
-export const INITIAL_SECTORS: Sector[] = [
+// ─── Sistemas de graduación ──────────────────────────────────
+// Boulder usa escala V (Hueco). Deportiva usa escala francesa.
+// Nunca se mezclan: el tipo de muro decide cuál se muestra.
+export const BOULDER_GRADES = ['V0', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7', 'V8', 'V9'];
+
+export const SPORT_GRADES = [
+  '5a', '5b', '5c',
+  '6a', '6a+', '6b', '6b+', '6c', '6c+',
+  '7a', '7a+', '7b', '7b+', '7c', '7c+',
+  '8a'
+];
+
+export const gradesForWallType = (type: WallType): string[] =>
+  type === 'boulder' ? BOULDER_GRADES : SPORT_GRADES;
+
+// ─── Muros reales del gimnasio (fotos en /public/walls) ──────
+export const INITIAL_WALLS: Wall[] = [
   {
-    id: 'cueva',
-    name: 'La Cueva',
-    angle: '45°',
-    description: 'Desplome agresivo, regletas y romos. Alta intensidad física.',
-    imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBKVhw-jksVTj69fhU_ftDWaMiyDnw2XPb4KpPpN5Nx1OAV6kn5O7BXlj0dVqjUI0JoCaCIN_6zFZhrC8Sz2YlJfQMMhEQgML6AK8x_0rIasUTpzh4jLerc46e-GaPHvRTfBxnPELwmVXZeKUR1Q3C550-Ih9Psyeirh-Pr3oNoZcETAhOAKCtKarttBT9fvOcYCt51gN5Nbn2q0MHlRrGcFM5GMr0Iw4zKYW0B_VQlXhNRpBgh9BjDyjOmKZoXHTRtWWNqc_GTre_g'
+    id: 'zona-1-adentro',
+    name: 'Zona 1 · Adentro',
+    type: 'boulder',
+    angle: '35°',
+    description: 'Desplome interior con presas grandes y romos. Bloques físicos de resistencia.',
+    imageUrl: '/walls/zona-1-adentro-boulder.jpg'
   },
   {
-    id: 'placa',
-    name: 'Placa Técnica',
-    angle: '0°',
-    description: 'Equilibrio puro, micro-pies y adherencia. Paciencia y técnica requeridas.',
-    imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAXbX6i_PTHXvdkQS4XfNE3HCGr0_9MfLHY55tlJGSuepodWHzPEMlye3xlJQHmRrCw3p1h5aHMil2ojAPDyMoyNyvInlypQXpyz1zQBvIZxJ8t4y4qAYuOxLfMG7oh8glAxe-8bar2KINuVy3dBdqbb2yG1F4xfxB3C89nk0ZXorDTTm5kWEskw3nqrjdW8kyftzCnC88eRUmORHJg0i7wloW6eFTsQM6SMMg5cEghMwSdRxCaul9EYbPopWgRbQ6qQOWzIy1COizB'
+    id: 'zona-1-afuera',
+    name: 'Zona 1 · Afuera',
+    type: 'boulder',
+    angle: '20°',
+    description: 'Sección exterior con techo corto y volúmenes triangulares. Coordinación y bloqueos.',
+    imageUrl: '/walls/zona-1-afuera-boulder.jpg'
   },
   {
-    id: 'comp',
-    name: 'Muro Competición',
+    id: 'zona-2-afuera',
+    name: 'Zona 2 · Afuera',
+    type: 'boulder',
     angle: '15°',
-    description: 'Volúmenes gigantes, lances (dynos) y coordinación. Estilo moderno de competición.',
-    imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBmjRPAAuRWfQzeaPG_YW6guSs6HTTuEWQvBN1nuGjTAWf3Sb0c3CU1wz4kXJ-deGpyEJGmgNsZq-dcD5o-CQmIQ6CvBsyOnsfNtZQeiY1ugkSPVeTM2-RVM_j_CY8bylg8XGt4Y8ZPGLsetjs54rgOSEOvHR_H08og4EJbi7w70TRdiSXLIJpq4TYysb-L3XQ_VClruEuFwgcqrn2KKZIboLl6ZlXSKAN1PUf5kD2UvGikAEuVqys6cdkPcohhcif06v2CLSudapXp'
+    description: 'Muro exterior de inclinación media. Lecturas técnicas y cambios de ritmo.',
+    imageUrl: '/walls/zona-2-afuera-boulder.jpg'
+  },
+  {
+    id: 'zona-3-afuera',
+    name: 'Zona 3 · Afuera',
+    type: 'boulder',
+    angle: '10°',
+    description: 'Placa exterior de ángulo suave. Ideal para pulir pies y equilibrio.',
+    imageUrl: '/walls/zona-3-afuera-boulder.jpg'
+  },
+  {
+    id: 'deportivo',
+    name: 'Muro Deportivo',
+    type: 'deportiva',
+    angle: '90°',
+    description: 'Vías con cuerda de hasta 12 m. Vertical y ligeros desplomes, resistencia pura.',
+    imageUrl: '/walls/deportivo.jpg'
   }
 ];
 
+// ─── Betas de ejemplo de la comunidad ────────────────────────
 export const INITIAL_BETAS: Beta[] = [
   {
     id: 'pink-menace',
     name: 'The Pink Menace',
     grade: 'V5',
     styles: ['CRIMP', 'OVERHANG'],
-    holdColor: '#ec4899', // pink/purple
-    notes: 'El crux es juntar manos en la tercera regleta regleta muy fina. Asegura pies altos y un dropknee técnico con la derecha para estabilizar el centro de gravedad.',
-    imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuC3z4qhIPquNgcDTxCVRtP8S2M0HiNYxvXkbCwTPgxA9RMGl69UI_Tv3nrl0k4t13qFnnS740gXkG0YeWeinOrwFa80DvdZE4mgKyqt_p8pp12vt9BTs67axOhQhskNvmZMjYKwNoIFDxtD3AnR5fvbpxkPrWnBnpKrjaw-gpdv6u0G8eiTeLUSiBKUlVNAHBOgrb_R0exzDFAEFectGPu9Hx1eKniRVD2mBMr5BaG8VemlqRu2i9x4zXT2q_-FRMWOS-PEqjzgdVVO',
+    holdColor: '#ec4899',
+    notes: 'El crux es juntar manos en la tercera regleta muy fina. Asegura pies altos y un dropknee técnico con la derecha para estabilizar el centro de gravedad.',
+    imageUrl: '/walls/zona-1-adentro-boulder.jpg',
     markers: [
-      { id: '1', x: 28, y: 76, type: 'START' },
-      { id: '2', x: 38, y: 62, type: 'SEQ', label: '1' },
-      { id: '3', x: 50, y: 52, type: 'SEQ', label: '2' },
-      { id: '4', x: 58, y: 44, type: 'SEQ', label: '3' },
-      { id: '5', x: 42, y: 22, type: 'TOP' }
+      { id: '1', x: 62, y: 78, type: 'START' },
+      { id: '2', x: 58, y: 60, type: 'SEQ', label: '1' },
+      { id: '3', x: 52, y: 45, type: 'SEQ', label: '2' },
+      { id: '4', x: 46, y: 32, type: 'SEQ', label: '3' },
+      { id: '5', x: 40, y: 18, type: 'TOP' }
     ],
+    strokes: [
+      {
+        id: 's1',
+        tool: 'ARROW',
+        color: '#facc15',
+        points: [{ x: 60, y: 74 }, { x: 56, y: 63 }]
+      }
+    ],
+    texts: [],
     createdAt: 'Hace 2 días',
-    sectorId: 'cueva',
-    author: 'mauryemmanuel83'
+    wallId: 'zona-1-adentro',
+    author: 'mauryemmanuel83',
+    comments: [
+      {
+        id: 'c1',
+        author: 'anka.climbs',
+        text: 'El dropknee me salvó, buena beta. Yo llego a la regleta con la izquierda primero.',
+        createdAt: 'Hace 1 día'
+      }
+    ],
+    recommendations: 7
   },
   {
     id: 'yellow-dyno',
     name: 'Yellow Dyno',
     grade: 'V7',
     styles: ['DYNAMIC', 'VOLUME', 'JUG'],
-    holdColor: '#eab308', // yellow
-    notes: 'Realiza un lance coordinado explosivo hacia el volumen romo superior. Mantén la tensión del core activa y balancea las piernas para controlar el péndulo.',
-    imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuC0mf13e04Wx5uPbko7kV5UI9xBcif7Tq99oQn33YrdmKAAC7G1os9_W_vVd0PTtqt0psI71MoVPdpfPNh8X4mTqZcBIcMokXrB9Rkrl9wn-JkJ3aDFs5-6gZBwlkKeFjrq8i_1xEWdCGZQvTLnai3M_bb-rfR0S240ED5roXR7C2lbMhf12BokayaSpwjGCBVRpY-MhMadS__iZHoiUdnqluENiuFGCahm0LWIZJYKaeJvWpFu8V7nAHci45ETfruP0EdjTj_z6CQB',
+    holdColor: '#eab308',
+    notes: 'Lance coordinado explosivo hacia el volumen romo superior. Mantén la tensión del core activa y balancea las piernas para controlar el péndulo.',
+    imageUrl: '/walls/zona-1-afuera-boulder.jpg',
     markers: [
-      { id: '1', x: 48, y: 82, type: 'START' },
-      { id: '2', x: 50, y: 55, type: 'SEQ', label: '1' },
-      { id: '3', x: 32, y: 25, type: 'TOP' }
+      { id: '1', x: 30, y: 80, type: 'START' },
+      { id: '2', x: 38, y: 55, type: 'SEQ', label: '1' },
+      { id: '3', x: 52, y: 25, type: 'TOP' }
     ],
+    strokes: [],
+    texts: [],
     createdAt: 'Hace 5 días',
-    sectorId: 'comp',
-    author: 'mauryemmanuel83'
+    wallId: 'zona-1-afuera',
+    author: 'mauryemmanuel83',
+    comments: [],
+    recommendations: 12
   },
   {
-    id: 'corner-project',
-    name: 'Corner Project',
-    grade: 'V6',
-    styles: ['STEMMING', 'SLOPER'],
-    holdColor: '#3b82f6', // blue
-    notes: 'Presión lenta y controlada en diedro con adherencias técnicas. Los micro-apoyos de pies son la clave absoluta. Limpia bien la goma de tus pies antes de subir.',
-    imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuD5b2JWPJa-cwssKYfkw05X2LcyCVhtnuNV3FEacTadR9SW162Jan_ZV-c0zG6dnYJwrvtUaqKtwJZHSPAyUNY5W256ZcT38f3SJsWDp2Pd4ebAYZ_Gtz0QLr0Prf6DLda7wQyx0iAt4uV4g4tuLbkjtyKehpmHxAQwT-GGvjWHAPaSvp61eYu_w7swtzVSLaQalSJ9E8YxweBFlHOtwEKiKHvvNz-sagJxEYO-lR7BO1sJqJ1elv9yHhSb0dM_CK4EPTOHWwER_0-G',
+    id: 'resistencia-6b',
+    name: 'Vía de la Grieta',
+    grade: '6b+',
+    styles: ['ENDURANCE', 'CRIMP'],
+    holdColor: '#3b82f6',
+    notes: 'Vía continua sin reposos claros hasta la mitad. Administra el pump: chapea rápido en la 3ra y descansa en la repisa antes del techo final.',
+    imageUrl: '/walls/deportivo.jpg',
     markers: [
-      { id: '1', x: 35, y: 78, type: 'START' },
-      { id: '2', x: 42, y: 64, type: 'SEQ', label: '1' },
-      { id: '3', x: 38, y: 45, type: 'SEQ', label: '2' },
-      { id: '4', x: 55, y: 35, type: 'SEQ', label: '3' },
-      { id: '5', x: 48, y: 15, type: 'TOP' }
+      { id: '1', x: 40, y: 88, type: 'START' },
+      { id: '2', x: 42, y: 60, type: 'SEQ', label: '1' },
+      { id: '3', x: 45, y: 35, type: 'SEQ', label: '2' },
+      { id: '4', x: 47, y: 12, type: 'TOP' }
     ],
+    strokes: [],
+    texts: [],
     createdAt: 'Proyecto Activo',
-    sectorId: 'placa',
+    wallId: 'deportivo',
     author: 'mauryemmanuel83',
-    activeProject: true
+    activeProject: true,
+    comments: [
+      {
+        id: 'c2',
+        author: 'lena_v',
+        text: 'Ese reposo en la repisa es clave, gracias!',
+        createdAt: 'Hace 3 horas'
+      }
+    ],
+    recommendations: 4
   }
 ];
 
@@ -90,25 +158,25 @@ export const INITIAL_STATS: ClimberStats = {
   flashesCount: 12,
   level: 42,
   title: 'Climber',
-  sector: 'Sector Alpha'
+  sector: 'Pirqa Lima'
 };
 
-// Generates dates for consistency matrix
+// Genera fechas para la matriz de consistencia
 export const generateActivityMatrix = (): ActivityMatrixDay[] => {
   const days: ActivityMatrixDay[] = [];
   const now = new Date();
-  
-  // Create 15 weeks * 7 days of climbing activity (last 105 days)
+
+  // 15 semanas * 7 días de actividad (últimos 105 días)
   for (let i = 105; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(now.getDate() - i);
     const dateStr = d.toISOString().split('T')[0];
-    
-    // Pseudo-random activity level favoring weekends and Wednesdays
-    const dayOfWeek = d.getDay(); // 0 is Sunday, 3 is Wed, 6 is Saturday
+
+    // Actividad pseudo-aleatoria favoreciendo findes y miércoles
+    const dayOfWeek = d.getDay();
     let count = 0;
     const rand = Math.random();
-    
+
     if (dayOfWeek === 0 || dayOfWeek === 6 || dayOfWeek === 3) {
       if (rand > 0.8) count = 4;
       else if (rand > 0.5) count = 3;
@@ -117,9 +185,9 @@ export const generateActivityMatrix = (): ActivityMatrixDay[] => {
       if (rand > 0.9) count = 2;
       else if (rand > 0.75) count = 1;
     }
-    
+
     days.push({ date: dateStr, count });
   }
-  
+
   return days;
 };

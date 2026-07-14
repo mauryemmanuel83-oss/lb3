@@ -1,370 +1,381 @@
-import React, { useState, useRef } from 'react';
-import { Sector, Beta, Marker, MarkerType } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { Wall, Beta } from '../types';
+import { gradesForWallType } from '../data';
+import { BetaEditor, EditorSnapshot, EMPTY_SNAPSHOT } from './BetaEditor';
+import { Mascot } from './Mascot';
 
 interface BuildProps {
-  sectors: Sector[];
-  initialSectorId: string | null;
-  onPublish: (beta: Omit<Beta, 'id' | 'createdAt' | 'author'>) => void;
+  walls: Wall[];
+  initialWallId: string | null;
+  onPublish: (beta: Omit<Beta, 'id' | 'createdAt' | 'author' | 'comments' | 'recommendations'>) => void;
 }
 
-export const Build: React.FC<BuildProps> = ({
-  sectors,
-  initialSectorId,
-  onPublish
-}) => {
-  // Input fields state
-  const [routeName, setRouteName] = useState('');
-  const [selectedSectorId, setSelectedSectorId] = useState(initialSectorId || sectors[0]?.id || 'cueva');
-  const [selectedGrade, setSelectedGrade] = useState('V3');
-  const [selectedStyles, setSelectedStyles] = useState<string[]>(['JUG', 'DYNAMIC']);
-  const [selectedHoldColor, setSelectedHoldColor] = useState('#eab308'); // Default yellow
-  const [notes, setNotes] = useState('');
-  
-  // Custom image selection or Preset preset
-  const presetImages = [
-    'https://lh3.googleusercontent.com/aida-public/AB6AXuD5b2JWPJa-cwssKYfkw05X2LcyCVhtnuNV3FEacTadR9SW162Jan_ZV-c0zG6dnYJwrvtUaqKtwJZHSPAyUNY5W256ZcT38f3SJsWDp2Pd4ebAYZ_Gtz0QLr0Prf6DLda7wQyx0iAt4uV4g4tuLbkjtyKehpmHxAQwT-GGvjWHAPaSvp61eYu_w7swtzVSLaQalSJ9E8YxweBFlHOtwEKiKHvvNz-sagJxEYO-lR7BO1sJqJ1elv9yHhSb0dM_CK4EPTOHWwER_0-G',
-    'https://lh3.googleusercontent.com/aida-public/AB6AXuBKVhw-jksVTj69fhU_ftDWaMiyDnw2XPb4KpPpN5Nx1OAV6kn5O7BXlj0dVqjUI0JoCaCIN_6zFZhrC8Sz2YlJfQMMhEQgML6AK8x_0rIasUTpzh4jLerc46e-GaPHvRTfBxnPELwmVXZeKUR1Q3C550-Ih9Psyeirh-Pr3oNoZcETAhOAKCtKarttBT9fvOcYCt51gN5Nbn2q0MHlRrGcFM5GMr0Iw4zKYW0B_VQlXhNRpBgh9BjDyjOmKZoXHTRtWWNqc_GTre_g',
-    'https://lh3.googleusercontent.com/aida-public/AB6AXuAXbX6i_PTHXvdkQS4XfNE3HCGr0_9MfLHY55tlJGSuepodWHzPEMlye3xlJQHmRrCw3p1h5aHMil2ojAPDyMoyNyvInlypQXpyz1zQBvIZxJ8t4y4qAYuOxLfMG7oh8glAxe-8bar2KINuVy3dBdqbb2yG1F4xfxB3C89nk0ZXorDTTm5kWEskw3nqrjdW8kyftzCnC88eRUmORHJg0i7wloW6eFTsQM6SMMg5cEghMwSdRxCaul9EYbPopWgRbQ6qQOWzIy1COizB'
-  ];
-  const [selectedImage, setSelectedImage] = useState(presetImages[0]);
-  const [customImageInput, setCustomImageInput] = useState('');
-  const [showImageDropdown, setShowImageDropdown] = useState(false);
+type Step = 'wall' | 'photo' | 'draw' | 'details';
 
-  // Markers state and drawing mode
-  const [markers, setMarkers] = useState<Marker[]>([
-    { id: 'm1', x: 50, y: 82, type: 'START' },
-    { id: 'm2', x: 50, y: 55, type: 'SEQ', label: '1' },
-    { id: 'm3', x: 32, y: 25, type: 'TOP' }
-  ]);
-  const [currentTool, setCurrentTool] = useState<MarkerType>('SEQ');
-  const imageRef = useRef<HTMLImageElement>(null);
+const STEPS: { id: Step; label: string }[] = [
+  { id: 'wall', label: 'Muro' },
+  { id: 'photo', label: 'Foto' },
+  { id: 'draw', label: 'Dibuja' },
+  { id: 'details', label: 'Publica' }
+];
 
-  // Styling categories matching screenshot tags
-  const styleTags = ['CRIMP', 'JUG', 'SLOPER', 'DYNAMIC', 'PINCH', 'OVERHANG', 'STEMMING', 'VOLUME'];
+const STYLE_TAGS = ['CRIMP', 'JUG', 'SLOPER', 'DYNAMIC', 'PINCH', 'OVERHANG', 'ENDURANCE', 'VOLUME'];
 
-  // Color circles matching screenshot selectors
-  const holdColors = [
-    { name: 'Rojo', hex: '#ef4444' },
-    { name: 'Azul', hex: '#3b82f6' },
-    { name: 'Amarillo', hex: '#eab308' },
-    { name: 'Verde', hex: '#22c55e' },
-    { name: 'Púrpura', hex: '#a855f7' }
-  ];
+const HOLD_COLORS = [
+  { name: 'Rojo', hex: '#ef4444' },
+  { name: 'Azul', hex: '#3b82f6' },
+  { name: 'Amarillo', hex: '#eab308' },
+  { name: 'Verde', hex: '#22c55e' },
+  { name: 'Púrpura', hex: '#a855f7' },
+  { name: 'Rosa', hex: '#ec4899' },
+  { name: 'Negro', hex: '#27272a' },
+  { name: 'Blanco', hex: '#f4f4f5' }
+];
 
-  // Grade levels V0 to V9
-  const grades = ['V0', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7', 'V8', 'V9'];
-
-  // Handle styles selection toggle
-  const toggleStyle = (style: string) => {
-    if (selectedStyles.includes(style)) {
-      setSelectedStyles(selectedStyles.filter(s => s !== style));
-    } else {
-      setSelectedStyles([...selectedStyles, style]);
-    }
-  };
-
-  // Click on climbing image to place marker
-  const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!imageRef.current) return;
-    
-    // Get click position percentage coordinates relative to the image element
-    const rect = imageRef.current.getBoundingClientRect();
-    const x = Math.round(((e.clientX - rect.left) / rect.width) * 1000) / 10;
-    const y = Math.round(((e.clientY - rect.top) / rect.height) * 1000) / 10;
-
-    // Check bounds safety
-    if (x < 0 || x > 100 || y < 0 || y > 100) return;
-
-    // Build the marker
-    let markerLabel: string | undefined = undefined;
-    
-    if (currentTool === 'SEQ') {
-      // Find the next sequence number dynamically
-      const seqMarkers = markers.filter(m => m.type === 'SEQ');
-      const nextNum = seqMarkers.length + 1;
-      markerLabel = nextNum.toString();
-    }
-
-    const newMarker: Marker = {
-      id: Math.random().toString(36).substr(2, 9),
-      x,
-      y,
-      type: currentTool,
-      label: markerLabel
+// Comprime la foto de cámara a un dataURL liviano para localStorage
+const compressImage = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 1400;
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('canvas'));
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', 0.8));
     };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('img'));
+    };
+    img.src = url;
+  });
 
-    setMarkers([...markers, newMarker]);
+/**
+ * Flujo de creación de Beta, sin desvíos:
+ * Elegir muro → Tomar foto → Dibujar beta → Publicar.
+ */
+export const Build: React.FC<BuildProps> = ({ walls, initialWallId, onPublish }) => {
+  const initialWall = walls.find((w) => w.id === initialWallId) || null;
+  const [step, setStep] = useState<Step>(initialWall ? 'photo' : 'wall');
+  const [wall, setWall] = useState<Wall | null>(initialWall);
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [loadingPhoto, setLoadingPhoto] = useState(false);
+  const [snapshot, setSnapshot] = useState<EditorSnapshot>(EMPTY_SNAPSHOT);
+
+  // Detalles
+  const [routeName, setRouteName] = useState('');
+  const [grade, setGrade] = useState('');
+  const [styles, setStyles] = useState<string[]>([]);
+  const [holdColor, setHoldColor] = useState(HOLD_COLORS[0].hex);
+  const [notes, setNotes] = useState('');
+
+  const [publishState, setPublishState] = useState<null | 'publishing' | 'success'>(null);
+
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+
+  // El grado por defecto depende del sistema del muro (V-scale vs francesa)
+  useEffect(() => {
+    if (wall) {
+      const grades = gradesForWallType(wall.type);
+      setGrade((g) => (grades.includes(g) ? g : grades[Math.min(3, grades.length - 1)]));
+    }
+  }, [wall]);
+
+  const stepIndex = STEPS.findIndex((s) => s.id === step);
+
+  const goBack = () => {
+    if (step === 'photo') setStep('wall');
+    else if (step === 'draw') setStep('photo');
+    else if (step === 'details') setStep('draw');
   };
 
-  // Remove individual marker
-  const removeMarker = (markerId: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // Avoid placing another marker on click
-    const filtered = markers.filter(m => m.id !== markerId);
-    
-    // Re-index sequence numbers to keep them sequential starting from 1
-    let seqCount = 1;
-    const reindexed = filtered.map(m => {
-      if (m.type === 'SEQ') {
-        const updated = { ...m, label: seqCount.toString() };
-        seqCount++;
-        return updated;
-      }
-      return m;
-    });
-
-    setMarkers(reindexed);
+  const handleSelectWall = (w: Wall) => {
+    setWall(w);
+    setStep('photo');
   };
 
-  // Clear all holds
-  const clearAllMarkers = () => {
-    setMarkers([]);
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setLoadingPhoto(true);
+    try {
+      const dataUrl = await compressImage(file);
+      setPhoto(dataUrl);
+      setSnapshot(EMPTY_SNAPSHOT);
+      setStep('draw');
+    } catch {
+      alert('No se pudo procesar la foto. Intenta de nuevo.');
+    } finally {
+      setLoadingPhoto(false);
+    }
   };
 
-  // Submit route form to publish
+  const toggleStyle = (style: string) => {
+    setStyles((prev) => (prev.includes(style) ? prev.filter((s) => s !== style) : [...prev, style]));
+  };
+
   const handlePublish = () => {
-    const finalRouteName = routeName.trim() || `Ruta ${selectedGrade} ${sectors.find(s => s.id === selectedSectorId)?.name || 'Cueva'}`;
-    
-    onPublish({
-      name: finalRouteName,
-      grade: selectedGrade,
-      styles: selectedStyles,
-      holdColor: selectedHoldColor,
-      notes: notes.trim(),
-      imageUrl: selectedImage,
-      markers: markers,
-      sectorId: selectedSectorId,
-      activeProject: false
-    });
+    if (!wall || !photo) return;
+    setPublishState('publishing');
+
+    // La mascota sube mientras "publica"; luego celebra
+    setTimeout(() => {
+      setPublishState('success');
+      setTimeout(() => {
+        const finalName = routeName.trim() || `Ruta ${grade} · ${wall.name}`;
+        onPublish({
+          name: finalName,
+          grade,
+          styles,
+          holdColor,
+          notes: notes.trim(),
+          imageUrl: photo,
+          markers: snapshot.markers,
+          strokes: snapshot.strokes,
+          texts: snapshot.texts,
+          wallId: wall.id,
+          activeProject: false
+        });
+      }, 1300);
+    }, 1400);
   };
+
+  const grades = wall ? gradesForWallType(wall.type) : [];
 
   return (
-    <div className="w-full pb-10">
-      {/* Build Header */}
+    <div className="w-full pb-10 max-w-3xl mx-auto">
+      {/* ─── Overlay de publicación con mascota ─── */}
+      {publishState && (
+        <div className="fixed inset-0 z-[70] bg-background/95 backdrop-blur-md flex flex-col items-center justify-center gap-6">
+          <div className="bg-surface-container border-2 border-outline-variant rounded-2xl p-6 shadow-[6px_6px_0_0_#facc15] pop-in">
+            <Mascot state={publishState} size={140} />
+          </div>
+          <p className="font-display font-black text-xl text-white tracking-tight pop-in">
+            {publishState === 'publishing' ? 'Subiendo tu beta...' : '¡Beta publicada!'}
+          </p>
+          <p className="font-mono text-[10px] text-on-surface-variant uppercase tracking-widest">
+            {publishState === 'publishing' ? 'La comunidad la verá en segundos' : '+150 pts de Beta Score'}
+          </p>
+        </div>
+      )}
+
+      {/* ─── Header con progreso ─── */}
       <div className="mb-6 mt-2">
-        <h2 className="font-display font-black text-3xl md:text-4xl text-primary-container tracking-tight" id="build-title">
-          Crear Beta
-        </h2>
-        <p className="font-mono text-xs text-on-surface-variant mt-2 uppercase tracking-wider">
-          Marca las presas y diseña el bloque técnico de la comunidad
-        </p>
-      </div>
-
-      {/* Main Layout Container */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* LEFT COLUMN: Interactive Drawing Wall (span 7) */}
-        <div className="lg:col-span-7 flex flex-col gap-3">
-          <label className="font-mono text-xs text-on-surface-variant uppercase tracking-wider flex items-center justify-between">
-            <span>DIBUJA LAS PRESAS (Toca la imagen para marcar)</span>
-            <button 
-              onClick={clearAllMarkers}
-              className="text-red-400 font-mono text-[10px] hover:underline flex items-center gap-1"
-              id="btn-clear-markers"
+        <div className="flex items-center gap-3">
+          {step !== 'wall' && (
+            <button
+              onClick={goBack}
+              className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg border border-outline-variant bg-surface-container text-on-surface hover:border-primary-container btn-punch"
+              title="Volver"
+              id="btn-build-back"
             >
-              <span className="material-symbols-outlined text-[12px]">delete_sweep</span>
-              Limpiar todo
+              <span className="material-symbols-outlined">arrow_back</span>
             </button>
-          </label>
-
-          {/* Interactive Climb Wall Frame */}
-          <div 
-            className="relative w-full aspect-[4/5] bg-surface-container-lowest rounded-lg border border-outline-variant overflow-hidden shadow-[4px_4px_0_0_rgba(0,0,0,1)] group"
-            id="climbing-canvas-container"
-          >
-            {/* The interactive click container */}
-            <div 
-              onClick={handleImageClick}
-              className="w-full h-full relative cursor-crosshair select-none"
-            >
-              <img
-                ref={imageRef}
-                alt="Fondo de Muro de Escalada"
-                className="absolute inset-0 w-full h-full object-cover opacity-80"
-                src={selectedImage}
-                referrerPolicy="no-referrer"
-              />
-
-              {/* Rendering Markers overlay */}
-              {markers.map((marker) => {
-                let markerBgColor = 'border-primary-container bg-surface/80 text-primary-container';
-                let markerSymbol = 'circle';
-                
-                if (marker.type === 'START') {
-                  markerBgColor = 'border-primary-container bg-primary-container/20 text-primary-container shadow-[0_0_12px_#facc15]';
-                } else if (marker.type === 'TOP') {
-                  markerBgColor = 'border-red-500 bg-red-500/20 text-red-400 shadow-[0_0_12px_rgba(239,68,68,0.7)]';
-                } else if (marker.type === 'SEQ') {
-                  markerBgColor = 'border-yellow-500 bg-yellow-500/10 text-yellow-400 font-black';
-                } else if (marker.type === 'ARROW') {
-                  markerBgColor = 'border-purple-500 bg-purple-500/20 text-purple-400';
-                  markerSymbol = 'navigation';
-                }
-
-                return (
-                  <div
-                    key={marker.id}
-                    onClick={(e) => removeMarker(marker.id, e)}
-                    style={{ left: `${marker.x}%`, top: `${marker.y}%` }}
-                    className={`absolute w-8 h-8 -ml-4 -mt-4 border-2 rounded-full flex items-center justify-center text-xs backdrop-blur-sm transition-all duration-150 hover:scale-110 cursor-pointer ${markerBgColor}`}
-                    title="Haz clic para eliminar este hold"
-                    id={`marker-${marker.id}`}
-                  >
-                    {marker.type === 'SEQ' ? (
-                      <span className="font-mono text-[11px] font-bold">{marker.label}</span>
-                    ) : marker.type === 'ARROW' ? (
-                      <span className="material-symbols-outlined text-[14px]">arrow_outward</span>
-                    ) : (
-                      <span className="font-mono text-[9px] font-semibold">{marker.type}</span>
-                    )}
-
-                    {/* Small close tag shown on hover */}
-                    <div className="absolute -top-1 -right-1 bg-red-600 border border-red-400 rounded-full w-3.5 h-3.5 items-center justify-center hidden group-hover:flex text-[8px] text-white">
-                      ×
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Draw Tool overlay instructions */}
-              <div className="absolute top-3 left-3 bg-background/90 backdrop-blur border border-outline-variant rounded px-2.5 py-1 text-[10px] font-mono text-on-surface-variant flex items-center gap-1.5 pointer-events-none">
-                <span className="material-symbols-outlined text-[12px] text-primary-container animate-pulse">help_outline</span>
-                <span>Modo actual: <strong className="text-white uppercase">{currentTool}</strong>. Toca hold para borrar.</span>
-              </div>
-            </div>
-
-            {/* Drawing Toolbar Overlay fixed on bottom */}
-            <div className="absolute bottom-4 left-4 right-4 bg-surface/95 backdrop-blur-sm border border-outline rounded-lg p-2 flex justify-between items-center z-10 shadow-[0_4px_0_0_rgba(0,0,0,1)]">
-              {/* START TOOL */}
-              <button
-                onClick={() => setCurrentTool('START')}
-                className={`h-11 px-3 flex flex-col items-center justify-center gap-0.5 rounded cursor-pointer transition-colors ${
-                  currentTool === 'START'
-                    ? 'text-primary-container bg-surface-container-high border border-primary-container/40'
-                    : 'text-on-surface-variant hover:text-primary-container'
-                }`}
-                title="Marcar inicio de ruta (holds iniciales)"
-                id="btn-tool-start"
-              >
-                <div className="w-3.5 h-3.5 rounded-full border-2 border-primary-container bg-primary-container/20 shadow-[0_0_6px_#facc15]"></div>
-                <span className="font-mono text-[9px] tracking-wider uppercase font-semibold">START</span>
-              </button>
-
-              {/* TOP TOOL */}
-              <button
-                onClick={() => setCurrentTool('TOP')}
-                className={`h-11 px-3 flex flex-col items-center justify-center gap-0.5 rounded cursor-pointer transition-colors ${
-                  currentTool === 'TOP'
-                    ? 'text-red-400 bg-surface-container-high border border-red-500/40'
-                    : 'text-on-surface-variant hover:text-red-400'
-                }`}
-                title="Marcar presa final (top hold)"
-                id="btn-tool-top"
-              >
-                <div className="w-3.5 h-3.5 rounded-full border-2 border-red-500 bg-red-500/20 shadow-[0_0_6px_rgba(239,68,68,0.7)]"></div>
-                <span className="font-mono text-[9px] tracking-wider uppercase font-semibold">TOP</span>
-              </button>
-
-              {/* SEQ TOOL */}
-              <button
-                onClick={() => setCurrentTool('SEQ')}
-                className={`h-11 px-3 flex flex-col items-center justify-center gap-0.5 rounded cursor-pointer transition-colors ${
-                  currentTool === 'SEQ'
-                    ? 'text-yellow-400 bg-surface-container-high border border-yellow-500/40'
-                    : 'text-on-surface-variant hover:text-yellow-400'
-                }`}
-                title="Marcar holds de secuencia intermedia (auto-incremento)"
-                id="btn-tool-seq"
-              >
-                <span className="material-symbols-outlined text-[18px]">timeline</span>
-                <span className="font-mono text-[9px] tracking-wider uppercase font-semibold">SEQ</span>
-              </button>
-
-              {/* ARROW TOOL */}
-              <button
-                onClick={() => setCurrentTool('ARROW')}
-                className={`h-11 px-3 flex flex-col items-center justify-center gap-0.5 rounded cursor-pointer transition-colors ${
-                  currentTool === 'ARROW'
-                    ? 'text-purple-400 bg-surface-container-high border border-purple-500/40'
-                    : 'text-on-surface-variant hover:text-purple-400'
-                }`}
-                title="Marcar un puntero o hold auxiliar"
-                id="btn-tool-arrow"
-              >
-                <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-                <span className="font-mono text-[9px] tracking-wider uppercase font-semibold">ARROW</span>
-              </button>
-            </div>
-
-            {/* Change Image Button overlay */}
-            <div className="absolute top-3 right-3 z-10">
-              <button
-                onClick={() => setShowImageDropdown(!showImageDropdown)}
-                className="bg-surface-container-highest/90 backdrop-blur border border-outline-variant hover:bg-surface-bright px-2.5 py-1.5 rounded flex items-center gap-1.5 cursor-pointer text-[10px] font-mono text-on-surface"
-                id="btn-change-image-dropdown"
-              >
-                <span className="material-symbols-outlined text-[14px] text-primary-container">add_photo_alternate</span>
-                <span>CAMBIAR IMAGEN</span>
-              </button>
-
-              {showImageDropdown && (
-                <div className="absolute right-0 mt-1 bg-surface-container border border-outline-variant rounded p-2.5 w-64 flex flex-col gap-2 shadow-[4px_4px_0_0_#000] z-50">
-                  <span className="font-mono text-[9px] text-outline uppercase tracking-wider">Presets de Muros</span>
-                  <div className="flex gap-1.5 justify-between">
-                    {presetImages.map((p, idx) => (
-                      <button
-                        key={p}
-                        onClick={() => {
-                          setSelectedImage(p);
-                          setShowImageDropdown(false);
-                        }}
-                        className={`w-14 h-14 rounded overflow-hidden border cursor-pointer ${
-                          selectedImage === p ? 'border-primary-container border-2' : 'border-outline-variant'
-                        }`}
-                        id={`btn-preset-image-${idx}`}
-                      >
-                        <img src={p} className="w-full h-full object-cover" alt="" referrerPolicy="no-referrer" />
-                      </button>
-                    ))}
-                  </div>
-
-                  <span className="font-mono text-[9px] text-outline uppercase tracking-wider mt-1.5">O introduce URL de foto</span>
-                  <div className="flex gap-1">
-                    <input
-                      type="text"
-                      className="bg-background border border-outline-variant text-[10px] px-1.5 py-1 rounded w-full text-white"
-                      placeholder="https://..."
-                      value={customImageInput}
-                      onChange={(e) => setCustomImageInput(e.target.value)}
-                      id="input-custom-image-url"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (customImageInput.trim().startsWith('http')) {
-                          setSelectedImage(customImageInput.trim());
-                          setCustomImageInput('');
-                          setShowImageDropdown(false);
-                        }
-                      }}
-                      className="bg-primary-container hover:bg-yellow-400 text-on-primary text-[10px] px-2 rounded font-mono font-bold"
-                      id="btn-apply-custom-image"
-                    >
-                      Ir
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+          )}
+          <div className="min-w-0">
+            <h2 className="font-display font-black text-2xl md:text-3xl text-primary-container tracking-tight">
+              Crear Beta
+            </h2>
+            {wall && step !== 'wall' && (
+              <p className="font-mono text-[10px] text-on-surface-variant mt-0.5 uppercase tracking-wider truncate">
+                {wall.name} · {wall.type === 'boulder' ? 'Boulder (V)' : 'Deportiva (Fr)'}
+              </p>
+            )}
           </div>
         </div>
 
-        {/* RIGHT COLUMN: Technical Metadata and Fields (span 5) */}
-        <div className="lg:col-span-5 flex flex-col gap-5">
-          <h2 className="font-display font-bold text-lg text-on-background border-b border-outline-variant pb-2 uppercase tracking-wide">
-            TECH SPECS
-          </h2>
+        {/* Barra de pasos */}
+        <div className="flex items-center gap-1.5 mt-4">
+          {STEPS.map((s, i) => (
+            <React.Fragment key={s.id}>
+              <div className="flex flex-col items-center gap-1">
+                <div
+                  className={`h-7 w-7 rounded-full flex items-center justify-center font-mono text-[10px] font-bold border-2 transition-all duration-300 ${
+                    i < stepIndex
+                      ? 'bg-primary-container border-primary-container text-on-primary'
+                      : i === stepIndex
+                        ? 'bg-primary-container/15 border-primary-container text-primary-container scale-110'
+                        : 'bg-surface-container border-outline-variant text-outline'
+                  }`}
+                >
+                  {i < stepIndex ? <span className="material-symbols-outlined text-[14px]">check</span> : i + 1}
+                </div>
+                <span
+                  className={`font-mono text-[8px] uppercase tracking-wide ${
+                    i === stepIndex ? 'text-primary-container font-bold' : 'text-outline'
+                  }`}
+                >
+                  {s.label}
+                </span>
+              </div>
+              {i < STEPS.length - 1 && (
+                <div
+                  className={`flex-1 h-0.5 mb-4 rounded transition-colors duration-300 ${
+                    i < stepIndex ? 'bg-primary-container' : 'bg-outline-variant/40'
+                  }`}
+                ></div>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
 
-          {/* Route Name Input */}
+      {/* ─── PASO 1: Elegir muro ─── */}
+      {step === 'wall' && (
+        <div className="flex flex-col gap-3">
+          <p className="font-mono text-xs text-on-surface-variant uppercase tracking-wider mb-1">
+            ¿En qué muro está tu bloque?
+          </p>
+          {walls.map((w, i) => (
+            <button
+              key={w.id}
+              onClick={() => handleSelectWall(w)}
+              style={{ animationDelay: `${i * 60}ms` }}
+              className="card-in btn-punch text-left bg-[#18181B] border border-[#3F3F46] hover:border-primary-container rounded-xl overflow-hidden flex items-center gap-4 shadow-[3px_3px_0_0_rgba(0,0,0,1)] group"
+              id={`build-wall-${w.id}`}
+            >
+              <div className="w-24 h-20 shrink-0 overflow-hidden bg-surface-container-lowest">
+                <img
+                  src={w.imageUrl}
+                  alt={w.name}
+                  loading="lazy"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+              <div className="min-w-0 py-2 pr-2 flex-1">
+                <div className="flex items-center gap-2">
+                  <h4 className="font-display font-bold text-sm text-white group-hover:text-primary-container transition-colors truncate">
+                    {w.name}
+                  </h4>
+                  <span
+                    className={`shrink-0 font-mono text-[8px] font-bold px-1.5 py-0.5 rounded uppercase border ${
+                      w.type === 'boulder'
+                        ? 'text-orange-300 border-orange-500/50 bg-orange-950/30'
+                        : 'text-sky-300 border-sky-500/50 bg-sky-950/30'
+                    }`}
+                  >
+                    {w.type}
+                  </span>
+                </div>
+                <p className="font-sans text-[11px] text-on-surface-variant line-clamp-1 mt-1">{w.description}</p>
+              </div>
+              <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary-container mr-3 transition-all group-hover:translate-x-0.5">
+                chevron_right
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ─── PASO 2: Tomar foto ─── */}
+      {step === 'photo' && wall && (
+        <div className="flex flex-col items-center gap-6 card-in">
+          <div className="w-full bg-[#18181B] border border-[#3F3F46] rounded-xl p-6 flex flex-col items-center gap-5 text-center">
+            {loadingPhoto ? (
+              <>
+                <Mascot state="loading" size={110} />
+                <p className="font-mono text-xs text-on-surface-variant uppercase tracking-wider">
+                  Procesando foto...
+                </p>
+              </>
+            ) : (
+              <>
+                <Mascot state="idle" size={110} />
+                <div>
+                  <h3 className="font-display font-black text-lg text-white">Fotografía tu bloque</h3>
+                  <p className="font-sans text-xs text-on-surface-variant mt-2 leading-relaxed max-w-sm">
+                    Toma una foto nueva de la ruta tal como está hoy. Sobre esa foto dibujarás tu beta: inicio,
+                    secuencia, flechas y top.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="w-full max-w-xs h-16 bg-primary-container text-on-primary font-display font-black text-base tracking-wide rounded-xl flex items-center justify-center gap-3 shadow-[4px_4px_0_0_rgba(0,0,0,1)] btn-punch"
+                  id="btn-open-camera"
+                >
+                  <span className="material-symbols-outlined text-[28px]">photo_camera</span>
+                  ABRIR CÁMARA
+                </button>
+
+                <button
+                  onClick={() => galleryInputRef.current?.click()}
+                  className="font-mono text-[11px] text-on-surface-variant hover:text-primary-container transition-colors flex items-center gap-1.5"
+                  id="btn-open-gallery"
+                >
+                  <span className="material-symbols-outlined text-[16px]">photo_library</span>
+                  o elegir de la galería
+                </button>
+              </>
+            )}
+          </div>
+
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleFile}
+          />
+          <input ref={galleryInputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+        </div>
+      )}
+
+      {/* ─── PASO 3: Dibujar ─── */}
+      {step === 'draw' && photo && (
+        <div className="flex flex-col gap-4 card-in">
+          <BetaEditor imageUrl={photo} initial={snapshot} onChange={setSnapshot} />
+
+          <div className="flex gap-2.5">
+            <button
+              onClick={() => cameraInputRef.current?.click()}
+              className="h-13 px-4 py-3 rounded-xl border border-outline-variant bg-surface-container text-on-surface font-mono text-[10px] uppercase flex items-center gap-1.5 btn-punch"
+              id="btn-retake-photo"
+            >
+              <span className="material-symbols-outlined text-[18px]">photo_camera</span>
+              Repetir foto
+            </button>
+            <button
+              onClick={() => setStep('details')}
+              className="flex-1 h-13 py-3 bg-primary-container text-on-primary font-display font-black text-sm tracking-widest rounded-xl flex items-center justify-center gap-2 shadow-[4px_4px_0_0_rgba(0,0,0,1)] btn-punch"
+              id="btn-to-details"
+            >
+              CONTINUAR
+              <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── PASO 4: Detalles y publicar ─── */}
+      {step === 'details' && wall && photo && (
+        <div className="flex flex-col gap-5 card-in">
+          {/* Mini-preview de lo dibujado */}
+          <div className="flex items-center gap-4 bg-surface-container/60 border border-outline-variant/50 rounded-xl p-3">
+            <img src={photo} alt="Tu foto" className="w-16 h-16 rounded-lg object-cover border border-outline-variant" />
+            <div className="font-mono text-[10px] text-on-surface-variant leading-relaxed">
+              <span className="text-white font-bold">{snapshot.markers.length}</span> marcadores ·{' '}
+              <span className="text-white font-bold">{snapshot.strokes.length}</span> trazos ·{' '}
+              <span className="text-white font-bold">{snapshot.texts.length}</span> textos
+              <button
+                onClick={() => setStep('draw')}
+                className="block text-primary-container hover:underline mt-0.5"
+              >
+                ← Editar dibujo
+              </button>
+            </div>
+          </div>
+
+          {/* Nombre */}
           <div className="flex flex-col gap-1.5">
             <label className="font-mono text-xs text-on-surface-variant uppercase tracking-wider" htmlFor="routeName">
               Nombre de la Ruta
@@ -372,141 +383,142 @@ export const Build: React.FC<BuildProps> = ({
             <input
               type="text"
               id="routeName"
-              className="w-full bg-surface-container border border-outline-variant rounded p-3 text-sm text-on-surface focus:border-primary-container focus:ring-1 focus:ring-primary-container focus:outline-none placeholder:text-outline-variant/50"
-              placeholder="Ej. The Pink Menace, Yellow Dyno..."
+              className="w-full bg-surface-container border border-outline-variant rounded-lg p-3.5 text-sm text-on-surface focus:border-primary-container focus:ring-1 focus:ring-primary-container focus:outline-none placeholder:text-outline-variant/50"
+              placeholder={`Ej. Ruta ${grade} · ${wall.name}`}
               value={routeName}
               onChange={(e) => setRouteName(e.target.value)}
             />
           </div>
 
-          {/* Sector Selector */}
+          {/* Grado: SOLO el sistema del muro */}
           <div className="flex flex-col gap-1.5">
-            <label className="font-mono text-xs text-on-surface-variant uppercase tracking-wider" htmlFor="sectorSelector">
-              Sector del Muro
+            <label className="font-mono text-xs text-on-surface-variant uppercase tracking-wider flex items-center gap-2">
+              Grado
+              <span
+                className={`font-bold px-1.5 py-0.5 rounded text-[9px] border ${
+                  wall.type === 'boulder'
+                    ? 'text-orange-300 border-orange-500/50 bg-orange-950/30'
+                    : 'text-sky-300 border-sky-500/50 bg-sky-950/30'
+                }`}
+              >
+                {wall.type === 'boulder' ? 'ESCALA V · BOULDER' : 'FRANCESA · DEPORTIVA'}
+              </span>
             </label>
-            <select
-              id="sectorSelector"
-              className="w-full bg-surface-container border border-outline-variant rounded p-3 text-sm text-on-surface focus:border-primary-container focus:ring-1 focus:ring-primary-container focus:outline-none cursor-pointer"
-              value={selectedSectorId}
-              onChange={(e) => setSelectedSectorId(e.target.value)}
-            >
-              {sectors.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.angle} desplome)
-                </option>
+            <div className="flex overflow-x-auto gap-2 pb-2 no-scrollbar" id="grade-selector">
+              {grades.map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setGrade(g)}
+                  className={`flex-shrink-0 h-11 min-w-[52px] px-3 rounded-lg font-mono text-xs cursor-pointer transition-all btn-punch ${
+                    grade === g
+                      ? 'bg-primary-container text-on-primary border border-primary-container shadow-[3px_3px_0_0_rgba(0,0,0,1)] font-bold'
+                      : 'bg-surface-container border border-outline-variant text-on-surface hover:border-primary-container'
+                  }`}
+                  id={`btn-grade-${g}`}
+                >
+                  {g}
+                </button>
               ))}
-            </select>
-          </div>
-
-          {/* Grade Selector */}
-          <div className="flex flex-col gap-1.5">
-            <label className="font-mono text-xs text-on-surface-variant uppercase tracking-wider">
-              GRADO (V-SCALE)
-            </label>
-            <div className="flex overflow-x-auto gap-2 pb-2 no-scrollbar" id="grade-selector-container">
-              {grades.map((grade) => {
-                const isActive = selectedGrade === grade;
-                return (
-                  <button
-                    key={grade}
-                    type="button"
-                    onClick={() => setSelectedGrade(grade)}
-                    className={`flex-shrink-0 h-10 px-4 rounded font-mono text-xs cursor-pointer transition-all ${
-                      isActive
-                        ? 'bg-primary-container text-on-primary border border-primary-container shadow-[3px_3px_0_0_rgba(0,0,0,1)] -translate-y-0.5 font-bold'
-                        : 'bg-surface-container border border-outline-variant text-on-surface hover:border-primary-container'
-                    }`}
-                    id={`btn-select-grade-${grade}`}
-                  >
-                    {grade}
-                  </button>
-                );
-              })}
             </div>
           </div>
 
-          {/* Route Styles Tags */}
+          {/* Color de presas */}
           <div className="flex flex-col gap-1.5">
             <label className="font-mono text-xs text-on-surface-variant uppercase tracking-wider">
-              Estilo de la Ruta (ROUTE STYLE)
+              Color de las Presas
             </label>
-            <div className="flex flex-wrap gap-2" id="style-tags-container">
-              {styleTags.map((style) => {
-                const isSelected = selectedStyles.includes(style);
-                return (
-                  <button
-                    key={style}
-                    type="button"
-                    onClick={() => toggleStyle(style)}
-                    className={`h-8 px-3 rounded-full font-mono text-[10px] cursor-pointer transition-colors ${
-                      isSelected
-                        ? 'bg-primary-container border border-primary-container text-on-primary font-bold'
-                        : 'bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-bright'
-                    }`}
-                    id={`btn-tag-${style}`}
-                  >
-                    {style}
-                  </button>
-                );
-              })}
+            <div className="flex gap-2.5 flex-wrap">
+              {HOLD_COLORS.map((color) => (
+                <button
+                  key={color.hex}
+                  type="button"
+                  onClick={() => setHoldColor(color.hex)}
+                  style={{ backgroundColor: color.hex }}
+                  className={`w-10 h-10 rounded-full border-2 flex items-center justify-center cursor-pointer transition-transform hover:scale-110 ${
+                    holdColor === color.hex ? 'border-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.3)]' : 'border-background'
+                  }`}
+                  title={color.name}
+                  id={`btn-color-${color.name}`}
+                >
+                  {holdColor === color.hex && (
+                    <span
+                      className={`material-symbols-outlined text-[18px] font-black ${
+                        color.hex === '#f4f4f5' ? 'text-black' : 'text-white'
+                      }`}
+                    >
+                      check
+                    </span>
+                  )}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Hold Color Circles Selection */}
+          {/* Estilos */}
           <div className="flex flex-col gap-1.5">
             <label className="font-mono text-xs text-on-surface-variant uppercase tracking-wider">
-              Color de las Presas (HOLD COLOR)
+              Estilo (opcional)
             </label>
-            <div className="flex gap-3" id="hold-color-container">
-              {holdColors.map((color) => {
-                const isChecked = selectedHoldColor === color.hex;
-                return (
-                  <button
-                    key={color.hex}
-                    type="button"
-                    onClick={() => setSelectedHoldColor(color.hex)}
-                    style={{ backgroundColor: color.hex }}
-                    className="w-8 h-8 rounded-full border-2 border-background flex items-center justify-center cursor-pointer transition-transform hover:scale-110 relative"
-                    title={color.name}
-                    id={`btn-color-${color.name}`}
-                  >
-                    {isChecked && (
-                      <span className="material-symbols-outlined text-white text-[16px] font-black drop-shadow">
-                        check
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+            <div className="flex flex-wrap gap-2">
+              {STYLE_TAGS.map((style) => (
+                <button
+                  key={style}
+                  type="button"
+                  onClick={() => toggleStyle(style)}
+                  className={`h-9 px-3.5 rounded-full font-mono text-[10px] cursor-pointer transition-all btn-punch ${
+                    styles.includes(style)
+                      ? 'bg-primary-container border border-primary-container text-on-primary font-bold'
+                      : 'bg-surface-container border border-outline-variant text-on-surface hover:bg-surface-bright'
+                  }`}
+                  id={`btn-tag-${style}`}
+                >
+                  {style}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Technical comments / description */}
+          {/* Notas */}
           <div className="flex flex-col gap-1.5">
-            <label className="font-mono text-xs text-on-surface-variant uppercase tracking-wider" htmlFor="technicalComments">
-              NOTAS DE LA BETA / CRUX DETAILS
+            <label className="font-mono text-xs text-on-surface-variant uppercase tracking-wider" htmlFor="notes">
+              Notas de la Beta (crux, pies clave...)
             </label>
             <textarea
-              id="technicalComments"
-              className="w-full bg-surface-container border border-outline-variant rounded p-3 font-sans text-xs text-on-surface focus:border-primary-container focus:ring-1 focus:ring-primary-container focus:outline-none min-h-[100px] placeholder:text-on-surface-variant/50 leading-relaxed"
-              placeholder="Describe el crux del bloque, la colocación de pies clave, agarres ocultos, etc."
+              id="notes"
+              className="w-full bg-surface-container border border-outline-variant rounded-lg p-3.5 font-sans text-sm text-on-surface focus:border-primary-container focus:ring-1 focus:ring-primary-container focus:outline-none min-h-[90px] placeholder:text-on-surface-variant/50 leading-relaxed"
+              placeholder="Describe el crux, la colocación de pies clave, agarres ocultos..."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
             />
           </div>
 
-          {/* Publish Action Button */}
+          {/* Publicar */}
           <button
             onClick={handlePublish}
-            className="w-full h-14 bg-primary-container text-on-primary font-display font-bold text-sm tracking-widest rounded flex items-center justify-center gap-2 shadow-[4px_4px_0_0_#4d4632] hover:translate-y-0.5 hover:translate-x-0.5 hover:shadow-[2px_2px_0_0_#4d4632] transition-all active:translate-y-1 active:translate-x-1 active:shadow-none mt-2 cursor-pointer"
+            className="w-full h-16 bg-primary-container text-on-primary font-display font-black text-base tracking-widest rounded-xl flex items-center justify-center gap-2.5 shadow-[4px_4px_0_0_#4d4632] btn-punch mt-1"
             id="btn-publish-beta"
           >
-            <span className="material-symbols-outlined font-black text-[20px]">publish</span>
-            <span>PUBLICAR BETA</span>
+            <span className="material-symbols-outlined font-black text-[24px]">publish</span>
+            PUBLICAR BETA
           </button>
         </div>
+      )}
 
-      </div>
+      {/* Inputs de archivo disponibles en todos los pasos (para repetir foto) */}
+      {step !== 'photo' && (
+        <>
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleFile}
+          />
+          <input ref={galleryInputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+        </>
+      )}
     </div>
   );
 };

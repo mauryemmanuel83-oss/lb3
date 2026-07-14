@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Mascot } from './Mascot';
 
 interface OnboardingProps {
   onJoin: (username: string) => void;
@@ -30,14 +31,9 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onJoin }) => {
       <main className="w-full max-w-md px-6 flex flex-col items-center justify-center space-y-12 z-10 relative">
         {/* Graphic Header Area */}
         <div className="flex flex-col items-center justify-center space-y-6 w-full text-center">
-          {/* Mascot Container */}
-          <div className="w-32 h-32 md:w-36 md:h-36 rounded-xl overflow-hidden border-2 border-outline-variant relative bg-surface-container shadow-[4px_4px_0_0_#facc15] transition-transform hover:scale-105 duration-200">
-            <img 
-              alt="La Beta Mascot - Pixel Climber" 
-              className="w-full h-full object-cover" 
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuDqbcSTEaJUsiUvEDZ9uPUnqxBMZbA3LmZ1Hg6kp6jFFQAYwkvijjeQRUrnMz3U-_L4c6bzidEsxbndkDkAcAoSxuYoEnsL2yzUu9vv12fcs4l8WrYnl_YpwRQwr_k6Smv3ZPQ_lfqBr-alu0n13DyFYYZwRY5ihjS6y-oIgiQ7Zva6Yt7AiiwMourCS1r0DGS6kEuwlHeZ5ligs37tb1HjgDbZBzq48-boF73Fvq-Vklz-LD1LJceHwTRTwNjsqzeNHa9w_JYTEN02"
-              referrerPolicy="no-referrer"
-            />
+          {/* Mascota pixel-art escalando en vivo */}
+          <div className="w-32 h-32 md:w-36 md:h-36 rounded-xl overflow-hidden border-2 border-outline-variant relative bg-surface-container shadow-[4px_4px_0_0_#facc15] transition-transform hover:scale-105 duration-200 flex items-center justify-center pop-in">
+            <Mascot state="loading" size={116} />
             {/* Scanline overlay effect */}
             <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.15)_50%)] bg-[length:100%_4px] pointer-events-none opacity-40 mix-blend-overlay"></div>
           </div>
@@ -74,8 +70,8 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onJoin }) => {
             
             <div className="relative flex items-center bg-background border-b-2 border-outline-variant focus-within:border-primary-container transition-all duration-200">
               <span className="material-symbols-outlined text-outline-variant ml-3 text-[18px]">alternate_email</span>
-              <input 
-                autocomplete="off" 
+              <input
+                autoComplete="off"
                 className="w-full bg-transparent border-none text-on-surface font-sans h-12 px-3 placeholder:text-outline-variant/60 focus:ring-0 focus:outline-none text-base" 
                 id="username" 
                 onChange={(e) => {

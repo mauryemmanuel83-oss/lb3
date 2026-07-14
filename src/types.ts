@@ -1,34 +1,73 @@
-export type MarkerType = 'START' | 'TOP' | 'SEQ' | 'ARROW';
+export type WallType = 'boulder' | 'deportiva';
+
+export type MarkerType = 'START' | 'TOP' | 'SEQ';
+
+export type EditorTool = 'PEN' | 'ARROW' | 'START' | 'TOP' | 'SEQ' | 'TEXT';
+
+// Coordenadas siempre en porcentaje (0-100) relativas a la foto,
+// para que el dibujo escale idéntico en cualquier pantalla.
+export interface Point {
+  x: number;
+  y: number;
+}
 
 export interface Marker {
   id: string;
-  x: number; // percentage from left (0 - 100)
-  y: number; // percentage from top (0 - 100)
+  x: number;
+  y: number;
   type: MarkerType;
-  label?: string; // e.g. "1", "2" for sequences
+  label?: string; // "1", "2"... para secuencias
+}
+
+export interface Stroke {
+  id: string;
+  tool: 'PEN' | 'ARROW';
+  color: string;
+  points: Point[]; // PEN: polilínea libre. ARROW: [origen, destino]
+}
+
+export interface TextLabel {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+}
+
+export interface Comment {
+  id: string;
+  author: string;
+  text: string;
+  createdAt: string;
 }
 
 export interface Beta {
   id: string;
   name: string;
-  grade: string; // V0, V1, V2, V3, etc.
-  styles: string[]; // CRIMP, JUG, SLOPER, DYNAMIC, PINCH, OVERHANG, STEMMING, etc.
-  holdColor: string; // red, blue, yellow, green, purple
+  grade: string; // V0-V9 (boulder) o 5a-8a (deportiva) según el muro
+  styles: string[];
+  holdColor: string;
   notes: string;
-  imageUrl: string;
+  imageUrl: string; // foto tomada por el usuario (dataURL) o foto seed
   markers: Marker[];
-  createdAt: string; // "2 days ago", "5 days ago", "today", etc.
-  sectorId: string;
+  strokes: Stroke[];
+  texts: TextLabel[];
+  createdAt: string;
+  wallId: string;
   author: string;
   activeProject?: boolean;
+  comments: Comment[];
+  recommendations: number;
+  recommendedByMe?: boolean;
 }
 
-export interface Sector {
+export interface Wall {
   id: string;
   name: string;
-  angle: string; // "45°", "0°", "15°", etc.
+  type: WallType;
+  angle: string;
   description: string;
-  imageUrl: string;
+  imageUrl: string; // foto real del muro (solo para identificarlo)
 }
 
 export interface ClimberStats {
@@ -43,5 +82,9 @@ export interface ClimberStats {
 
 export interface ActivityMatrixDay {
   date: string; // YYYY-MM-DD
-  count: number; // 0 to 4+ sessions/sends
+  count: number;
 }
+
+export type MascotState = 'idle' | 'loading' | 'publishing' | 'success' | 'error' | 'empty';
+
+export type Tab = 'home' | 'explore' | 'build' | 'dashboard';
